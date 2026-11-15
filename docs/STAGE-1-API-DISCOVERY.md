@@ -1,5 +1,9 @@
 # Stage 1: AWS scholarship discovery
 
+Historical Stage 1 guide: current local Stage 2 configuration and guard now require
+the account API. Use [STAGE-2-STUDENT-API.md](STAGE-2-STUDENT-API.md) for the next
+release and current test/build commands; do not unset its account URL.
+
 The user confirmed the deployed stack `scholarrise-group9-backend` in
 `ap-southeast-2`, HTTP 200 from `/health` and `/scholarships`, and two approved
 fictional DynamoDB records. Stage 1 configures the existing frontend discovery

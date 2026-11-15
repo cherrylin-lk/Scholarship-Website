@@ -85,7 +85,8 @@ resources.ApiFunction = { Type: 'AWS::Serverless::Function', DependsOn: 'ApiLogs
     NOTIFICATIONS_TABLE: ref('NotificationsTable'), DOCUMENTS_TABLE: ref('DocumentsTable'), DOCUMENT_BUCKET: ref('DocumentBucket'),
     COGNITO_ISSUER: sub('https://cognito-idp.${AWS::Region}.amazonaws.com/${ExistingUserPoolId}'), COGNITO_CLIENT_ID: ref('ExistingUserPoolClientId'),
   } },
-  Events: { Health: apiEvent('/health', 'GET', true), Search: apiEvent('/scholarships', 'GET', true), Detail: apiEvent('/scholarships/{id}', 'GET', true), Private: apiEvent('/{proxy+}', 'ANY') },
+  // Explicit preflight overrides the JWT catch-all; it reuses this Lambda integration.
+  Events: { Health: apiEvent('/health', 'GET', true), Search: apiEvent('/scholarships', 'GET', true), Detail: apiEvent('/scholarships/{id}', 'GET', true), Preflight: apiEvent('/{proxy+}', 'OPTIONS', true), Private: apiEvent('/{proxy+}', 'ANY') },
 } };
 resources.ApiErrorAlarm = { Type: 'AWS::CloudWatch::Alarm', Properties: {
   AlarmDescription: 'Inspect CloudWatch when Lambda errors occur. No SNS integration.', Namespace: 'AWS/Lambda', MetricName: 'Errors',

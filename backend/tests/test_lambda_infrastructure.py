@@ -39,7 +39,7 @@ class LambdaInfrastructureTests(unittest.TestCase):
         self.assertNotIn('Auth', events['Private']['Properties'])
         public = {(event['Properties']['Method'], event['Properties']['Path']) for event in events.values()
                   if event['Properties'].get('Auth', {}).get('Authorizer') == 'NONE'}
-        self.assertEqual(public, {('GET', '/health'), ('GET', '/scholarships'), ('GET', '/scholarships/{id}')})
+        self.assertEqual(public, {('GET', '/health'), ('GET', '/scholarships'), ('GET', '/scholarships/{id}'), ('OPTIONS', '/{proxy+}')})
         self.assertFalse(any(row['Type'].startswith('AWS::Cognito::') for row in resources.values()))
         self.assertEqual(resources['DocumentBucket']['Properties']['PublicAccessBlockConfiguration']['BlockPublicPolicy'], True)
         statements = resources['ApiRole']['Properties']['Policies'][0]['PolicyDocument']['Statement']
@@ -53,6 +53,35 @@ class LambdaInfrastructureTests(unittest.TestCase):
         self.assertEqual(alarm['Namespace'], 'AWS/ApiGateway')
         self.assertEqual(alarm['MetricName'], '5xx')
         self.assertNotIn('AlarmActions', alarm)
+
+    def test_preflight_reuses_api_integration_without_jwt_or_data_access(self):
+        resources = json.loads((Path(__file__).resolve().parents[2] / 'infrastructure/template.json').read_text())['Resources']
+        api = resources['HttpApi']['Properties']
+        events = resources['ApiFunction']['Properties']['Events']
+        preflight = events['Preflight']['Properties']
+        self.assertEqual(preflight, {'ApiId': {'Ref': 'HttpApi'}, 'Path': '/{proxy+}',
+                                    'Method': 'OPTIONS', 'PayloadFormatVersion': '2.0', 'Auth': {'Authorizer': 'NONE'}})
+        self.assertEqual(events['Private']['Properties']['Method'], 'ANY')
+        self.assertNotIn('Auth', events['Private']['Properties'])
+        self.assertEqual(api['Auth']['DefaultAuthorizer'], 'CognitoJwt')
+        self.assertEqual(api['Auth']['Authorizers']['CognitoJwt']['AuthorizationScopes'], ['openid'])
+        self.assertEqual(api['CorsConfiguration']['AllowOrigins'], [{'Ref': 'FrontendOrigin'}])
+        self.assertIn('authorization', api['CorsConfiguration']['AllowHeaders'])
+        self.assertTrue(set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']).issubset(api['CorsConfiguration']['AllowMethods']))
+        app = Application(MemoryRepository(), 'issuer', 'client')
+        with patch('scholarrise.app.identity', side_effect=AssertionError('OPTIONS must not authenticate')), \
+             patch.object(app.repo, 'get', side_effect=AssertionError('OPTIONS must not read data')), \
+             patch.object(app.repo, 'put', side_effect=AssertionError('OPTIONS must not write data')):
+            for path in ['/me', '/me/profile', '/documents/uploads']:
+                response = app.handle({'rawPath': path, 'body': 'not JSON',
+                                       'requestContext': {'http': {'method': 'OPTIONS'}}})
+                self.assertEqual(response['statusCode'], 204)
+                self.assertEqual(response['body'], '')
+                # No wildcard or reflected origins from Lambda; Gateway supplies CORS.
+                self.assertNotIn('Access-Control-Allow-Origin', response['headers'])
+        for path in ['/me', '/me/saved', '/admin/users', '/university/scholarships']:
+            denied = app.handle({'rawPath': path, 'requestContext': {'http': {'method': 'GET'}}})
+            self.assertEqual(denied['statusCode'], 401)
 
     def test_existing_pool_is_referenced_without_cognito_mutation(self):
         template = json.loads((Path(__file__).resolve().parents[2] / 'infrastructure/template.json').read_text())

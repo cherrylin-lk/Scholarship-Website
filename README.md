@@ -1,5 +1,9 @@
 # Multi-University Scholarship Discovery, Recommendation and Tracking System
 
+## Stage 2: student APIs
+
+Student profiles, saves and application tracking are connected locally to the existing protected API. See [Stage 2 setup, tests and limitations](docs/STAGE-2-STUDENT-API.md). The new account API variable requires a later approved Amplify rebuild. No AWS resources or settings have been changed. Existing users must be provisioned before accessing cloud workspaces.
+
 ## Stage 1: AWS discovery
 
 See [the Stage 1 integration guide](docs/STAGE-1-API-DISCOVERY.md). Production configuration now selects the existing deployed scholarship API. The hosted site requires an approved rebuild before this change takes effect. Cognito is preserved; private workspaces remain browser-local. No deployment or push was performed.

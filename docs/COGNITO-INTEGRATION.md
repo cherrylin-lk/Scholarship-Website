@@ -83,7 +83,7 @@ dashboards, configure a real API Gateway JWT-protected backend `/me` response wi
 `university`, or `admin`). Failed account checks deny access. Backend authorization
 and ownership checks remain mandatory for every protected operation.
 
-Stage 1 production discovery uses the deployed scholarship API; workspace records still use the existing browser data layer. See `STAGE-1-API-DISCOVERY.md`.
+Stage 1 production discovery uses the deployed scholarship API; Stage 2 student profile/save/tracking code uses the protected API when enabled. See `STAGE-2-STUDENT-API.md`; other workspace features retain the documented local limitations.
 Cognito makes identity available across browsers; it does not synchronize these
 records. Sessions and OIDC transaction state use sessionStorage. Tokens remain
 JavaScript-accessible, so preventing XSS remains important. Refresh tokens restore

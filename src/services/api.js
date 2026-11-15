@@ -3,13 +3,15 @@ export class ApiError extends Error {
   constructor(message, status, requestId) { super(message); this.status = status; this.requestId = requestId; }
 }
 
-export function createApi({ baseUrl, getAccessToken = async () => null, fetchImpl = fetch }) {
+export function createApi({ baseUrl, getAccessToken = async () => null, fetchImpl = fetch, isSessionCurrent = () => true }) {
   if (!baseUrl) throw new Error('API URL is not configured.');
   const url = new URL(baseUrl);
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))) {
     throw new Error('API URL must use HTTPS (except loopback development).');
   }
   const request = async (path, { method = 'GET', body, query, signal, authenticated = true } = {}) => {
+    const checkSession = () => { if (!isSessionCurrent()) throw new ApiError('Session changed.', 401); };
+    checkSession();
     const target = new URL(`${url.href.replace(/\/$/, '')}${path}`);
     for (const [key, value] of Object.entries(query || {})) if (value !== '' && value != null) target.searchParams.set(key, value);
     const headers = { Accept: 'application/json' };
@@ -19,6 +21,7 @@ export function createApi({ baseUrl, getAccessToken = async () => null, fetchImp
       if (!token) throw new ApiError('Sign in with Cognito to use this endpoint.', 401);
       headers.Authorization = `Bearer ${token}`;
     }
+    checkSession(); // A queued/refreshing request must not send old data as a new user.
     const response = await fetchImpl(target.href, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal });
     let payload;
     try { payload = await response.json(); } catch { throw new ApiError('The API returned an invalid response.', response.status); }
@@ -27,6 +30,7 @@ export function createApi({ baseUrl, getAccessToken = async () => null, fetchImp
   };
   const id = encodeURIComponent;
   return {
+    forSession: guard => createApi({ baseUrl, getAccessToken, fetchImpl, isSessionCurrent: guard }),
     listScholarships: (query, signal) => request('/scholarships', { query, signal, authenticated: false }),
     getScholarship: scholarshipId => request(`/scholarships/${id(scholarshipId)}`, { authenticated: false }),
     me: () => request('/me'),

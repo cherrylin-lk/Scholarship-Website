@@ -3,14 +3,13 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readCognitoConfig } from '../src/services/cognito.js';
 
-// Stage 1: public AWS scholarship discovery; private workspaces remain browser-local.
+// Stage 2: public discovery and protected student APIs use the verified backend.
 export const productionEnvironment = JSON.parse(readFileSync(new URL('../deployment/amplify-environment.json', import.meta.url), 'utf8'));
 export function productionConfigErrors(env) {
   const errors = [];
   for (const [key, expected] of Object.entries(productionEnvironment)) {
     if (env[key] !== expected) errors.push(`Set ${key} to the documented production value.`);
   }
-  if (env.VITE_ACCOUNT_API_BASE_URL?.trim()) errors.push('Leave VITE_ACCOUNT_API_BASE_URL unset until students are provisioned and private APIs are tested.');
   for (const key of Object.keys(env)) {
     if (key.startsWith('VITE_') && /secret|password|token|access.?key|private.?key|credential/i.test(key)) {
       errors.push(`Remove sensitive frontend variable ${key}.`);

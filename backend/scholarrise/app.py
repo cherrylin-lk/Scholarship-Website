@@ -40,6 +40,10 @@ class Application:
         self.storage, self.accounts = storage, accounts
 
     def handle(self, event, context=None):
+        # API Gateway owns CORS headers. If it forwards the explicit public OPTIONS
+        # route, acknowledge without parsing a body, authenticating or reading data.
+        if event.get('requestContext', {}).get('http', {}).get('method') == 'OPTIONS':
+            return {'statusCode': 204, 'headers': {'Cache-Control': 'no-store'}, 'body': ''}
         request_id = event.get('requestContext', {}).get('requestId', str(uuid.uuid4()))
         try:
             raw = event.get('body') or '{}'

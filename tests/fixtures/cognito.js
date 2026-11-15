@@ -18,6 +18,8 @@ function jwt(payload) {
 }
 
 export async function mockCognito(page, { role = 'student', sub = 'oidc-student-sub', name = 'Jamie Student', email = 'jamie@example.test', verified = true } = {}) {
+  // Keep offline auth tests independent of Google Fonts/network navigation delays.
+  await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route => route.abort());
   let authorization, issued, tokenRequests = 0;
   const claims = () => ({ sub, email, email_verified: verified, name,
     // Deliberately adversarial group claim: frontend must not infer staff rights.
@@ -31,7 +33,7 @@ export async function mockCognito(page, { role = 'student', sub = 'oidc-student-
     const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization,content-type' };
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (!route.request().headers().authorization?.startsWith('Bearer ')) return route.fulfill({ status: 401, json: { message: 'Missing test identity' } });
-    return route.fulfill({ headers, json: { userId: sub, name, role, active: true, university: role === 'university' ? 'Westbridge University' : '', profile: {} } });
+    return route.fulfill({ headers, json: { userId: sub, name, role, active: true, version: 1, university: role === 'university' ? 'Westbridge University' : '', profile: {} } });
   });
   await page.route('https://auth.scholarrise.invalid/**', async route => {
     const url = new URL(route.request().url());
@@ -69,7 +71,7 @@ export async function signInThroughManagedLogin(page, options = {}) {
   const controls = await mockCognito(page, options);
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await page.getByRole('link', { name: 'Complete secure sign-in' }).click();
+  await page.getByRole('link', { name: 'Complete secure sign-in' }).click({ noWaitAfter: true });
   await page.getByRole('button', { name: 'My workspace', exact: true }).waitFor();
   return controls;
 }

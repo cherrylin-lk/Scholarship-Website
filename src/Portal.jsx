@@ -2,8 +2,12 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { Bell, Bookmark, LayoutDashboard, LogOut, Plus, Sparkles, UserRound, X, ArrowRight, CalendarDays, ShieldCheck, Building2 } from 'lucide-react';
 import { dateAfter, dateLabel, daysLeft, emptyProfile, fields, localDay, notifications, recommend, seedStore, statuses, studyLevels, fundingTypes, levelsOf, fundingOf, normalizeScholarship, isPublic, addThaiScholarships } from './model';
 import './portal.css';
-import { authClient, authConfig, resolveAccount } from './services/auth.js';
+import { accountApi, authClient, authConfig, resolveAccount } from './services/auth.js';
 
+import { createStudentWorkspace } from './services/student.js';
+
+const CLOUD_STUDENTS = Boolean(accountApi) && import.meta.env.VITE_DISCOVERY_SOURCE === 'api';
+const EMPTY_ROWS = [];
 const Context = createContext(null);
 export const usePortal = () => useContext(Context);
 const STORE_KEY = 'scholarrise-platform-v1';
@@ -19,7 +23,7 @@ function loadStore() {
 }
 
 export function PortalProvider({ children }) {
-  const [store, setStore] = useState(loadStore);
+  const [localStore, setStore] = useState(loadStore);
   const [account, setAccount] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
@@ -29,33 +33,56 @@ export function PortalProvider({ children }) {
   const [toast, setToast] = useState('');
   const [storageError, setStorageError] = useState(false);
   const [today, setToday] = useState(localDay());
-  const cached = account && store.users.find(u => u.id === account.id && u.cognito === true);
-  const user = account ? { ...account, name: cached?.name || account.name, profile: { ...emptyProfile, ...account.profile, ...cached?.profile } } : null;
-  useEffect(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); setStorageError(false); } catch { setStorageError(true); } }, [store]);
+  const accountRef = useRef(null);
+  const controller = useRef(null);
+  if (CLOUD_STUDENTS && !controller.current) controller.current = createStudentWorkspace({ api: accountApi, onUnauthorized: status => {
+    accountRef.current = null; setAccount(null); setView('discover');
+    setAuthError(status === 401 ? 'Your session expired. Please sign in again.' : 'Your account could not be verified. Please contact your administrator.');
+    void authClient.clearSession();
+  } });
+  const [remote, setRemote] = useState(() => controller.current?.getState());
+  const [catalog, setCatalog] = useState([]);
+  useEffect(() => controller.current?.subscribe(setRemote), []);
+  const cloudStudent = CLOUD_STUDENTS && account?.role === 'student';
+  const current = cloudStudent && remote?.userId === account.id ? remote : null;
+  const cached = !cloudStudent && account && localStore.users.find(u => u.id === account.id && u.cognito === true);
+  const record = current?.account;
+  const user = account ? { ...account, name: cloudStudent ? (record?.name || account.name) : (cached?.name || account.name),
+    version: cloudStudent ? record?.version : account.version,
+    profile: { ...emptyProfile, ...(cloudStudent ? (record?.profile || account.profile) : { ...account.profile, ...cached?.profile }) } } : null;
+  const store = cloudStudent ? { ...localStore, scholarships: catalog, users: [user],
+    applications: current?.applications || EMPTY_ROWS, bookmarks: { [account.id]: (current?.saved || []).map(row => row.scholarshipId) },
+    dismissed: { [account.id]: current?.dismissed || [] } } : localStore;
+  const workspaceReady = !cloudStudent || Boolean(current?.account && !current.loading && !current.busy && !current.error);
+  useEffect(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(localStore)); setStorageError(false); } catch { setStorageError(true); } }, [localStore]);
   useEffect(() => {
     let alive = true, generation = 0;
     const accept = async oidcUser => {
+      if (!alive) return;
       const current = ++generation;
-      setAccount(null);
-      if (!oidcUser) { if (alive) setAuthLoading(false); return; }
+      if (accountRef.current?.id !== oidcUser?.profile?.sub || !oidcUser) {
+        controller.current?.reset(); accountRef.current = null; setAccount(null); setView('discover');
+      }
+      if (!oidcUser) { setAuthLoading(false); return; }
       try {
         const verified = await resolveAccount(oidcUser);
-        if (alive && current === generation) { setAccount(verified); setAuthLoading(false); setAuthError(''); }
+        if (alive && current === generation) { accountRef.current = verified; setAccount(verified); controller.current?.start(verified); setAuthLoading(false); setAuthError(''); }
       } catch (error) {
         if (alive && current === generation) {
+          controller.current?.reset(); accountRef.current = null; setAccount(null); setView('discover');
           setAuthLoading(false);
           setAuthError(error.message.startsWith('Verify your email') ? error.message : 'Your account could not be verified. Please sign in again.');
           await authClient.clearSession();
         }
       }
     };
-    const onError = message => { if (alive) { setAccount(null); setAuthLoading(false); setAuthError(message); } };
+    const onError = message => { if (alive) { controller.current?.reset(); accountRef.current = null; setView('discover'); setAccount(null); setAuthLoading(false); setAuthError(message); } };
     const unsubscribe = authClient.subscribe(accept, onError);
     authClient.initialize().then(value => { if (alive) void accept(value); }).catch(() => onError('Sign-in could not be completed. Please try again from ScholarRise.'));
     return () => { alive = false; generation++; unsubscribe(); };
   }, []);
   useEffect(() => {
-    if (!account) return;
+    if (!account || (CLOUD_STUDENTS && account.role === 'student')) return;
     setStore(previous => {
       if (previous.users.some(u => u.id === account.id && u.cognito === true)) return previous;
       return { ...previous, users: [...previous.users, { id: account.id, name: account.name, email: account.email,
@@ -71,7 +98,7 @@ export function PortalProvider({ children }) {
     finally { setAuthBusy(false); }
   }
   async function logout() {
-    setAccount(null); setView('discover'); setAuthBusy(true);
+    controller.current?.reset(); accountRef.current = null; setAccount(null); setView('discover'); setAuthBusy(true);
     try { await authClient.signOut(); }
     catch { setAuthError('You are signed out of ScholarRise. Cognito sign-out could not finish; please retry.'); }
     finally { setAuthBusy(false); }
@@ -86,10 +113,29 @@ export function PortalProvider({ children }) {
     if (!s.deadline) { setToast('Check the official announcement for a deadline before tracking this program.'); return; }
     if (!isPublic(s) || daysLeft(s.deadline, today) < 0) { setToast('This scholarship is closed.'); return; }
     if (store.applications.some(a => a.userId === user.id && a.scholarshipId === s.id)) { go('applications'); return; }
+    if (cloudStudent) {
+      if (!workspaceReady) return;
+      void controller.current.saveApplication(s.id, { status: 'Planning', notes: '' }).then(ok => { if (ok) setToast('Added to your application tracker. No application has been sent.'); });
+      return;
+    }
     setStore(previous => ({ ...previous, applications: [...previous.applications, { id: crypto.randomUUID(), userId: user.id, scholarshipId: s.id, status: 'Planning', notes: '', updatedAt: new Date().toISOString() }] }));
     setToast('Added to your application tracker. No application has been sent.');
   }
-  return <Context.Provider value={{ store, setStore, user, view, go, setAuth: beginAuth, logout, authLoading, authBusy, authError, setToast, alerts, track, today }}>
+  async function saveStudentProfile(changes) {
+    const ok = await controller.current.saveProfile(changes);
+    if (ok) setToast('Student profile saved. Recommendations have been updated.');
+    return ok;
+  }
+  function toggleRemoteSaved(id) {
+    if (!user) { void beginAuth('login'); return; }
+    if (!cloudStudent || !workspaceReady) return;
+    void controller.current.toggleSaved(id);
+  }
+  return <Context.Provider value={{ cloudStudent, cloudConfigured: CLOUD_STUDENTS, workspaceReady, remote: current,
+    retryWorkspace: () => controller.current?.reload(), saveStudentProfile, toggleRemoteSaved, setCatalog,
+    saveRemoteApplication: (id, changes) => controller.current.saveApplication(id, changes),
+    removeRemoteApplication: id => controller.current.removeApplication(id),
+    dismissRemote: id => controller.current.dismiss(id), store, setStore, user, view, go, setAuth: beginAuth, logout, authLoading, authBusy, authError, setToast, alerts, track, today }}>
     {storageError && <div className="storage-warning" role="alert">Browser storage is unavailable or full. Changes will last only for this session.</div>}
     {children}
     {authError && !auth && <div className="portal-toast" role="alert">{authError}<button aria-label="Dismiss sign-in message" onClick={() => setAuthError('')}><X size={18}/></button></div>}
@@ -120,13 +166,17 @@ export function AccountNav() {
 }
 
 export function Workspace() {
-  const { user, view, go } = usePortal();
+  const { user, view, go, cloudStudent, remote, retryWorkspace } = usePortal();
   if (!user) return <main className="container workspace"><h1>Sign in to open your workspace.</h1></main>;
   const links = user.role === 'student' ? [['overview', 'Overview', LayoutDashboard], ['profile', 'Student profile', UserRound], ['recommendations', 'Recommendations', Sparkles], ['applications', 'Application tracking', Bookmark], ['notifications', 'Deadline reminders', Bell]] : user.role === 'university' ? [['university', 'University dashboard', Building2]] : [['admin', 'Administrator dashboard', ShieldCheck]];
   const activeView = links.some(([key]) => key === view) ? view : links[0][0];
-  return <main className="container workspace"><div className="workspace-heading"><div><div className="section-kicker">YOUR SCHOLARRISE WORKSPACE</div><h1>{user.role === 'student' ? `Welcome, ${user.name.split(' ')[0]}.` : user.role === 'university' ? 'University dashboard' : 'Administrator dashboard'}</h1><p>{user.role === 'student' ? 'Your goals, opportunities, and next steps in one place.' : user.role === 'university' ? user.university : 'Manage this browser’s demo users and scholarship catalog.'}</p></div><span className="sample-label">Mock data · {user.role}</span></div><div className="workspace-layout"><aside className="workspace-menu">{links.map(([key, label, Icon]) => <button key={key} className={activeView === key ? 'current' : ''} onClick={() => go(key)}><Icon size={18}/>{label}</button>)}<button onClick={() => go('discover')}><ArrowRight size={18}/>Browse scholarships</button></aside><section className="workspace-content">
-    {activeView === 'overview' && <Overview/>}{activeView === 'profile' && <Profile/>}{activeView === 'recommendations' && <Recommendations/>}{activeView === 'applications' && <Applications/>}{activeView === 'notifications' && <Notifications/>}{activeView === 'university' && user.role === 'university' && <Management/>}{activeView === 'admin' && user.role === 'admin' && <Management admin/>}
-  </section></div><p className="demo-note">Signed in with Cognito. Workspace data is currently stored in this browser; application submission and background notifications are not connected.</p></main>;
+  return <main className="container workspace"><div className="workspace-heading"><div><div className="section-kicker">YOUR SCHOLARRISE WORKSPACE</div><h1>{user.role === 'student' ? `Welcome, ${user.name.split(' ')[0]}.` : user.role === 'university' ? 'University dashboard' : 'Administrator dashboard'}</h1><p>{user.role === 'student' ? 'Your goals, opportunities, and next steps in one place.' : user.role === 'university' ? user.university : 'Manage this browser’s demo users and scholarship catalog.'}</p></div><span className="sample-label">{cloudStudent ? 'Cloud student data' : 'Mock data'} · {user.role}</span></div><div className="workspace-layout"><aside className="workspace-menu">{links.map(([key, label, Icon]) => <button key={key} className={activeView === key ? 'current' : ''} onClick={() => go(key)}><Icon size={18}/>{label}</button>)}<button onClick={() => go('discover')}><ArrowRight size={18}/>Browse scholarships</button></aside><section className="workspace-content">
+    {cloudStudent && remote?.loading && <p role="status">Loading your workspace...</p>}
+    {cloudStudent && remote?.error && <div className="panel" role="alert"><p>{remote.error}</p><button className="secondary-button" disabled={remote?.loading || remote?.busy} onClick={retryWorkspace}>Retry workspace</button></div>}
+    {cloudStudent && remote?.busy && <p role="status">Saving changes...</p>}
+
+    {(!cloudStudent || (!remote?.loading && remote?.account)) && <>{activeView === 'overview' && <Overview/>}{activeView === 'profile' && <Profile/>}{activeView === 'recommendations' && <Recommendations/>}{activeView === 'applications' && <Applications/>}{activeView === 'notifications' && <Notifications/>}{activeView === 'university' && user.role === 'university' && <Management/>}{activeView === 'admin' && user.role === 'admin' && <Management admin/>}</>}
+  </section></div><p className="demo-note">{cloudStudent ? 'Profiles, saved scholarships and tracking use AWS. Recommendations and in-app reminders are calculated in this browser; reminder dismissals last for this session. Application submission and background notifications are not connected.' : 'Signed in with Cognito. Workspace data is currently stored in this browser; application submission and background notifications are not connected.'}</p></main>;
 }
 
 function Overview() {
@@ -137,30 +187,32 @@ function Overview() {
 }
 
 function Profile() {
-  const { user, setStore, setToast } = usePortal();
-  function submit(e) { e.preventDefault(); const data = Object.fromEntries(new FormData(e.currentTarget)); if (!data.name.trim()) return; setStore(previous => ({ ...previous, users: previous.users.map(u => u.id === user.id ? { ...u, name: data.name.trim(), profile: { ...u.profile, degree: data.degree, field: data.field, gpa: data.gpa, country: data.country, bio: data.bio.trim(), fullFunding: data.fullFunding === 'on' } } : u) })); setToast('Student profile saved. Recommendations have been updated.'); }
-  return <div className="panel"><h2>Student profile</h2><p>Use a GPA on a 0–4 scale. These preferences power your local recommendations.</p><form className="portal-form form-grid" onSubmit={submit}><label>Full name<input name="name" required maxLength={80} defaultValue={user.name}/></label><label>Email<input value={user.email} disabled readOnly/></label><label>Study level<select name="degree" defaultValue={user.profile.degree}><option value="Undergraduate">Bachelor's</option><option value="Postgraduate">Master's / PhD (legacy)</option>{studyLevels.slice(1).map(l => <option key={l}>{l}</option>)}</select></label><label>Field of study<select name="field" defaultValue={user.profile.field}>{fields.map(field => <option key={field}>{field}</option>)}</select></label><label>Current GPA (0–4)<input name="gpa" type="number" min="0" max="4" step="0.01" required defaultValue={user.profile.gpa}/></label><label>Preferred destination<select name="country" defaultValue={user.profile.country}><option value="">Any destination</option>{['United Kingdom', 'United States', 'Singapore', 'Canada', 'Australia', 'Thailand'].map(country => <option key={country}>{country}</option>)}</select></label><label className="full-width">About your goals<textarea name="bio" rows={3} maxLength={1000} defaultValue={user.profile.bio}/></label><label className="check-label full-width"><input name="fullFunding" type="checkbox" defaultChecked={user.profile.fullFunding}/>Prioritize full tuition scholarships</label><button className="button" type="submit">Save profile</button></form></div>;
+  const { user, setStore, setToast, cloudStudent, workspaceReady, saveStudentProfile } = usePortal();
+  function submit(e) { e.preventDefault(); const data = Object.fromEntries(new FormData(e.currentTarget)); if (!data.name.trim()) return; if (cloudStudent) { void saveStudentProfile({ ...data, fullFunding: data.fullFunding === 'on' }); return; } setStore(previous => ({ ...previous, users: previous.users.map(u => u.id === user.id ? { ...u, name: data.name.trim(), profile: { ...u.profile, degree: data.degree, field: data.field, gpa: data.gpa, country: data.country, bio: data.bio.trim(), fullFunding: data.fullFunding === 'on' } } : u) })); setToast('Student profile saved. Recommendations have been updated.'); }
+  return <div className="panel"><h2>Student profile</h2><p>Use a GPA on a 0–4 scale. These preferences power your local recommendations.</p><form className="portal-form form-grid" onSubmit={submit} key={cloudStudent ? `${user.id}:${user.version}` : user.id}><label>Full name<input name="name" required maxLength={80} defaultValue={user.name}/></label><label>Email<input value={user.email} disabled readOnly/></label><label>Study level<select name="degree" defaultValue={cloudStudent && user.profile.degree === 'Undergraduate' ? "Bachelor's" : user.profile.degree}><option value={cloudStudent ? "Bachelor's" : 'Undergraduate'}>Bachelor's</option>{!cloudStudent && <option value="Postgraduate">Master's / PhD (legacy)</option>}{studyLevels.slice(1).map(l => <option key={l}>{l}</option>)}</select></label><label>Field of study<select name="field" defaultValue={user.profile.field}>{[...new Set([...fields, user.profile.field].filter(Boolean))].map(field => <option key={field}>{field}</option>)}</select></label><label>Current GPA (0–4)<input name="gpa" type="number" min="0" max="4" step="0.01" required defaultValue={user.profile.gpa}/></label><label>Preferred destination<select name="country" defaultValue={user.profile.country}><option value="">Any destination</option>{[...new Set(['United Kingdom', 'United States', 'Singapore', 'Canada', 'Australia', 'Thailand', user.profile.country].filter(Boolean))].map(country => <option key={country}>{country}</option>)}</select></label><label className="full-width">About your goals<textarea name="bio" rows={3} maxLength={1000} defaultValue={user.profile.bio}/></label><label className="check-label full-width"><input name="fullFunding" type="checkbox" defaultChecked={user.profile.fullFunding}/>Prioritize full tuition scholarships</label><button className="button" type="submit" disabled={!workspaceReady}>Save profile</button></form></div>;
 }
 
 function Recommendations() {
-  const { store, user, today, go, track } = usePortal();
+  const { store, user, today, go, track, cloudStudent, workspaceReady } = usePortal();
   const ranked = store.scholarships.map(s => ({ ...s, match: recommend(s, user.profile, today) })).filter(s => s.match).sort((a, b) => b.match.score - a.match.score);
-  return <><div className="panel"><h2>Recommended for you</h2><p>Rule-based ranking: study level and minimum GPA are required. Field, destination, and funding preferences improve the match score. This is a preference score, not an admission probability.</p><button className="text-link" onClick={() => go('profile')}>Update my preferences <ArrowRight size={14}/></button></div>{!ranked.length && <div className="panel"><h3>No matches yet</h3><p>Complete your GPA and study preferences, or explore scholarships using search.</p></div>}<div className="recommendation-grid">{ranked.map(s => <article className="panel" key={s.id}><span className="match-score">{s.match.score}/100 preference match</span><h3>{s.name}</h3><p>{s.university} · {s.country}</p><ul className="reason-list">{s.match.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul><p><CalendarDays size={14}/> Deadline: {dateLabel(s.deadline)}</p><button className="button" onClick={() => track(s)}>{store.applications.some(a => a.userId === user.id && a.scholarshipId === s.id) ? 'Open tracker' : 'Track application'}</button></article>)}</div></>;
+  return <><div className="panel"><h2>Recommended for you</h2><p>Rule-based ranking: study level and minimum GPA are required. Field, destination, and funding preferences improve the match score. This is a preference score, not an admission probability.</p><button className="text-link" onClick={() => go('profile')}>Update my preferences <ArrowRight size={14}/></button></div>{!ranked.length && <div className="panel"><h3>No matches yet</h3><p>Complete your GPA and study preferences, or explore scholarships using search.</p></div>}<div className="recommendation-grid">{ranked.map(s => <article className="panel" key={s.id}><span className="match-score">{s.match.score}/100 preference match</span><h3>{s.name}</h3><p>{s.university} · {s.country}</p><ul className="reason-list">{s.match.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul><p><CalendarDays size={14}/> Deadline: {dateLabel(s.deadline)}</p><button className="button" disabled={cloudStudent && !workspaceReady} onClick={() => track(s)}>{store.applications.some(a => a.userId === user.id && a.scholarshipId === s.id) ? 'Open tracker' : 'Track application'}</button></article>)}</div></>;
 }
 
 function Applications() {
-  const { store, user, setStore, setToast, today, go } = usePortal();
+  const { store, user, setStore, setToast, today, go, cloudStudent, workspaceReady, saveRemoteApplication, removeRemoteApplication } = usePortal();
   const [filter, setFilter] = useState('All statuses');
   const [remove, setRemove] = useState(null);
+  const [noteDrafts, setNoteDrafts] = useState({});
+  useEffect(() => { if (cloudStudent) setNoteDrafts({}); }, [cloudStudent, store.applications]);
   const owned = store.applications.filter(a => a.userId === user.id);
-  function update(id, changes) { setStore(previous => ({ ...previous, applications: previous.applications.map(a => a.id === id && a.userId === user.id ? { ...a, ...changes, updatedAt: new Date().toISOString() } : a) })); }
-  return <><div className="panel"><div className="panel-heading"><h2>Application tracking</h2><select aria-label="Filter applications by status" value={filter} onChange={e => setFilter(e.target.value)}><option>All statuses</option>{statuses.map(s => <option key={s}>{s}</option>)}</select></div><p>Track your own progress here. Changing a status does not submit a real application.</p></div>{!owned.length && <div className="panel"><h3>Your next chapter starts with one application.</h3><p>Open a scholarship’s details and select Track application.</p><button className="button" onClick={() => go('discover')}>Find scholarships</button></div>}{owned.length > 0 && !owned.some(a => filter === 'All statuses' || a.status === filter) && <div className="panel">No applications with this status.</div>}{owned.filter(a => filter === 'All statuses' || a.status === filter).map(a => { const s = store.scholarships.find(s => s.id === a.scholarshipId); if (!s) return null; const left = daysLeft(s.deadline, today); return <article className="panel" key={a.id}><div className="panel-heading"><div><h3>{s.name}</h3><p>{s.university}</p></div><span className="tag">{left < 0 ? 'Deadline passed' : left === 0 ? 'Due today' : `${left} days left`}</span></div><p>Deadline: {dateLabel(s.deadline)}{!s.published && ' · Listing currently unpublished'}</p><div className="form-grid"><label>Status<select value={a.status} onChange={e => update(a.id, { status: e.target.value })}>{statuses.map(status => <option key={status}>{status}</option>)}</select></label><label>Last updated<input readOnly value={new Date(a.updatedAt).toLocaleDateString('en-GB')}/></label><label className="full-width">Application notes<textarea rows={3} maxLength={2000} value={a.notes} onChange={e => update(a.id, { notes: e.target.value })} placeholder="Documents to prepare, next steps, or interview notes"/></label></div><button className="danger-button" onClick={() => setRemove(a.id)}>Remove from tracker</button></article>; })}{remove && <Dialog title="Remove tracked application?" onClose={() => setRemove(null)}><p>Your notes and tracking history for this application will be removed from this browser.</p><div className="action-row"><button className="secondary-button" onClick={() => setRemove(null)}>Cancel</button><button className="danger-button" onClick={() => { setStore(previous => ({ ...previous, applications: previous.applications.filter(a => !(a.id === remove && a.userId === user.id)) })); setRemove(null); setToast('Application removed from tracker.'); }}>Remove application</button></div></Dialog>}</>;
+  function update(id, changes) { if (cloudStudent) { void saveRemoteApplication(id, changes); return; } setStore(previous => ({ ...previous, applications: previous.applications.map(a => a.id === id && a.userId === user.id ? { ...a, ...changes, updatedAt: new Date().toISOString() } : a) })); }
+  return <><div className="panel"><div className="panel-heading"><h2>Application tracking</h2><select aria-label="Filter applications by status" value={filter} onChange={e => setFilter(e.target.value)}><option>All statuses</option>{statuses.map(s => <option key={s}>{s}</option>)}</select></div><p>Track your own progress here. Changing a status does not submit a real application.</p></div>{!owned.length && <div className="panel"><h3>Your next chapter starts with one application.</h3><p>Open a scholarship’s details and select Track application.</p><button className="button" onClick={() => go('discover')}>Find scholarships</button></div>}{owned.length > 0 && !owned.some(a => filter === 'All statuses' || a.status === filter) && <div className="panel">No applications with this status.</div>}{owned.filter(a => filter === 'All statuses' || a.status === filter).map(a => { const s = store.scholarships.find(s => s.id === a.scholarshipId) || (cloudStudent ? { name: 'Scholarship unavailable', university: '', deadline: null, published: false } : null); if (!s) return null; const left = daysLeft(s.deadline, today); return <article className="panel" key={a.id}><div className="panel-heading"><div><h3>{s.name}</h3><p>{s.university}</p></div><span className="tag">{left < 0 ? 'Deadline passed' : left === 0 ? 'Due today' : `${left} days left`}</span></div><p>Deadline: {dateLabel(s.deadline)}{!s.published && ' · Listing currently unpublished'}</p><div className="form-grid"><label>Status<select value={a.status} disabled={!workspaceReady} onChange={e => update(a.id, { status: e.target.value })}>{statuses.map(status => <option key={status}>{status}</option>)}</select></label><label>Last updated<input readOnly value={new Date(a.updatedAt).toLocaleDateString('en-GB')}/></label><label className="full-width">Application notes<textarea rows={3} maxLength={2000} value={cloudStudent ? (noteDrafts[a.id] ?? a.notes) : a.notes} disabled={!workspaceReady} onChange={e => cloudStudent ? setNoteDrafts(previous => ({ ...previous, [a.id]: e.target.value })) : update(a.id, { notes: e.target.value })} onBlur={() => { if (cloudStudent && noteDrafts[a.id] != null && noteDrafts[a.id] !== a.notes) update(a.id, { notes: noteDrafts[a.id] }); }} placeholder="Documents to prepare, next steps, or interview notes"/></label></div><button className="danger-button" onClick={() => setRemove(a.id)}>Remove from tracker</button></article>; })}{remove && <Dialog title="Remove tracked application?" onClose={() => setRemove(null)}><p>{cloudStudent ? 'Your notes and tracking history for this application will be removed from your account.' : 'Your notes and tracking history for this application will be removed from this browser.'}</p><div className="action-row"><button className="secondary-button" onClick={() => setRemove(null)}>Cancel</button><button className="danger-button" disabled={!workspaceReady} onClick={() => { if (cloudStudent) { void removeRemoteApplication(remove).then(ok => { if (ok) { setRemove(null); setToast('Application removed from tracker.'); } }); return; } setStore(previous => ({ ...previous, applications: previous.applications.filter(a => !(a.id === remove && a.userId === user.id)) })); setRemove(null); setToast('Application removed from tracker.'); }}>Remove application</button></div></Dialog>}</>;
 }
 
 function Notifications({ compact = false }) {
-  const { user, setStore, alerts, go } = usePortal();
-  function preference(changes) { setStore(previous => ({ ...previous, users: previous.users.map(u => u.id === user.id ? { ...u, profile: { ...u.profile, ...changes } } : u) })); }
-  return <div className="panel"><div className="panel-heading"><h2><Bell size={20}/> Deadline reminders</h2>{compact && <button className="text-link" onClick={() => go('notifications')}>Settings</button>}</div>{!compact && <><p>In-app reminders for saved scholarships and applications in Planning or Preparing. Checked while this page is open; no email, push, or background delivery.</p><div className="form-grid"><label className="check-label"><input type="checkbox" checked={user.profile.reminders} onChange={e => preference({ reminders: e.target.checked })}/>Enable deadline reminders</label><label>Reminder window<select value={user.profile.reminderDays} onChange={e => preference({ reminderDays: Number(e.target.value) })}>{[7, 14, 30].map(days => <option key={days} value={days}>{days} days before deadline</option>)}</select></label></div></>}{!alerts.length && <p>{user.profile.reminders ? 'You’re all caught up. Save or track scholarships to see upcoming deadlines here.' : 'Deadline reminders are switched off.'}</p>}{alerts.slice(0, compact ? 3 : alerts.length).map(s => <div className="reminder-row" key={s.noticeId}><CalendarDays size={22}/><div><h3>{s.name}</h3><p>{s.days === 0 ? 'Due today' : `Due in ${s.days} days`} · {dateLabel(s.deadline)}</p></div><button className="text-link" aria-label={`Dismiss reminder for ${s.name}`} onClick={() => setStore(previous => ({ ...previous, dismissed: { ...previous.dismissed, [user.id]: [...(previous.dismissed[user.id] || []), s.noticeId] } }))}>Dismiss</button></div>)}</div>;
+  const { user, setStore, alerts, go, cloudStudent, workspaceReady, saveStudentProfile, dismissRemote } = usePortal();
+  function preference(changes) { if (cloudStudent) { void saveStudentProfile(changes); return; } setStore(previous => ({ ...previous, users: previous.users.map(u => u.id === user.id ? { ...u, profile: { ...u.profile, ...changes } } : u) })); }
+  return <div className="panel"><div className="panel-heading"><h2><Bell size={20}/> Deadline reminders</h2>{compact && <button className="text-link" onClick={() => go('notifications')}>Settings</button>}</div>{!compact && <><p>In-app reminders for saved scholarships and applications in Planning or Preparing. Checked while this page is open; no email, push, or background delivery.</p><div className="form-grid"><label className="check-label"><input type="checkbox" checked={user.profile.reminders} disabled={!workspaceReady} onChange={e => preference({ reminders: e.target.checked })}/>Enable deadline reminders</label><label>Reminder window<select value={user.profile.reminderDays} disabled={!workspaceReady} onChange={e => preference({ reminderDays: Number(e.target.value) })}>{[7, 14, 30].map(days => <option key={days} value={days}>{days} days before deadline</option>)}</select></label></div></>}{!alerts.length && <p>{user.profile.reminders ? 'You’re all caught up. Save or track scholarships to see upcoming deadlines here.' : 'Deadline reminders are switched off.'}</p>}{alerts.slice(0, compact ? 3 : alerts.length).map(s => <div className="reminder-row" key={s.noticeId}><CalendarDays size={22}/><div><h3>{s.name}</h3><p>{s.days === 0 ? 'Due today' : `Due in ${s.days} days`} · {dateLabel(s.deadline)}</p></div><button className="text-link" aria-label={`Dismiss reminder for ${s.name}`} onClick={() => cloudStudent ? dismissRemote(s.noticeId) : setStore(previous => ({ ...previous, dismissed: { ...previous.dismissed, [user.id]: [...(previous.dismissed[user.id] || []), s.noticeId] } }))}>Dismiss</button></div>)}</div>;
 }
 
 function Management({ admin = false }) {

@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/model.test.js tests/services.test.js tests/cognito.test.js tests/deployment.test.js",
+    "test": "node --test tests/model.test.js tests/services.test.js tests/cognito.test.js tests/deployment.test.js tests/student.test.js",
     "check:production": "node scripts/check-production-config.mjs",
     "test:e2e": "playwright test",
-    "test:e2e:api": "playwright test --config playwright.api.config.js"
+    "test:e2e:api": "playwright test --config playwright.api.config.js",
+    "test:e2e:student": "playwright test --config playwright.student.config.js"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

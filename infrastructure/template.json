@@ -733,6 +733,20 @@
               }
             }
           },
+          "Preflight": {
+            "Type": "HttpApi",
+            "Properties": {
+              "ApiId": {
+                "Ref": "HttpApi"
+              },
+              "Path": "/{proxy+}",
+              "Method": "OPTIONS",
+              "PayloadFormatVersion": "2.0",
+              "Auth": {
+                "Authorizer": "NONE"
+              }
+            }
+          },
           "Private": {
             "Type": "HttpApi",
             "Properties": {

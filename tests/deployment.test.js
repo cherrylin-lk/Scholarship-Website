@@ -20,12 +20,12 @@ test('production callback/logout match Amplify while localhost remains independe
   assert.equal(readCognitoConfig(env, { origin: 'http://localhost:5173' }).configured, false);
 });
 
-test('Stage 1 permits only the deployed discovery API and keeps account APIs disabled', () => {
+test('Stage 2 permits only the verified discovery and protected account APIs', () => {
   assert.equal(env.VITE_DISCOVERY_SOURCE, 'api');
   assert.equal(env.VITE_API_BASE_URL, 'https://1wirfnp4a7.execute-api.ap-southeast-2.amazonaws.com');
-  assert.equal(env.VITE_ACCOUNT_API_BASE_URL, undefined);
+  assert.equal(env.VITE_ACCOUNT_API_BASE_URL, env.VITE_API_BASE_URL);
   assert.deepEqual(productionConfigErrors(env), []);
-  assert.deepEqual(productionConfigErrors({ ...env, VITE_ACCOUNT_API_BASE_URL: '' }), []);
+  assert.ok(productionConfigErrors({ ...env, VITE_ACCOUNT_API_BASE_URL: '' }).length > 0);
 });
 
 test('release guard rejects wrong discovery settings, callbacks, secrets and premature account APIs', () => {
@@ -33,7 +33,8 @@ test('release guard rejects wrong discovery settings, callbacks, secrets and pre
     { VITE_COGNITO_REDIRECT_URI: 'http://localhost:5173/' }, { VITE_API_BASE_URL: 'http://localhost:8000' },
     { VITE_API_BASE_URL: '' }, { VITE_API_BASE_URL: 'https://unconfigured.invalid' },
     { VITE_DISCOVERY_SOURCE: 'demo' }, { VITE_DISCOVERY_SOURCE: '' },
-    { VITE_ACCOUNT_API_BASE_URL: env.VITE_API_BASE_URL }, { VITE_CLIENT_SECRET: 'synthetic' }]) {
+    { VITE_ACCOUNT_API_BASE_URL: 'https://unconfigured.invalid' }, { VITE_ACCOUNT_API_BASE_URL: undefined },
+    { VITE_ACCOUNT_API_BASE_URL: 'http://localhost:8000' }, { VITE_CLIENT_SECRET: 'synthetic' }]) {
     assert.ok(productionConfigErrors({ ...env, ...overrides }).length > 0);
   }
 });

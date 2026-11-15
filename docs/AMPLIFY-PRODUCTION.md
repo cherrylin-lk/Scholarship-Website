@@ -1,6 +1,6 @@
 # ScholarRise: prepare the existing Amplify app
 
-Stage 1 prepares **AWS scholarship discovery with real Cognito login and browser-local workspace data**. See [the Stage 1 guide](STAGE-1-API-DISCOVERY.md) for the current scope and Stage 2 prerequisites.
+Stage 2 prepares **AWS scholarship discovery, student profiles, saves and tracking with existing Cognito login**. See [the Stage 2 guide](STAGE-2-STUDENT-API.md) for tests, provisioning prerequisites and remaining limitations.
 Your successful local registration, verification, login, logout and Incognito tests
 confirm the existing Cognito setup works locally. The updated Amplify build still
 needs its own post-deployment check. No AWS resources, Git commits, pushes or
@@ -21,6 +21,7 @@ may label this under App settings). Add these values for the `main` branch:
 | `VITE_COGNITO_LOGOUT_URI` | `https://main.d1s9suck9hx25r.amplifyapp.com/` |
 | `VITE_DISCOVERY_SOURCE` | `api` |
 | `VITE_API_BASE_URL` | `https://1wirfnp4a7.execute-api.ap-southeast-2.amazonaws.com` |
+| `VITE_ACCOUNT_API_BASE_URL` | `https://1wirfnp4a7.execute-api.ap-southeast-2.amazonaws.com` |
 
 The same public values are in `deployment/amplify-environment.json` for reference.
 Amplify does **not** automatically read this JSON file; enter the variables in its
@@ -28,9 +29,9 @@ console. Region, pool, client, domain and URLs are public identifiers. They are 
 AWS credentials. Every `VITE_` value is visible in downloaded JavaScript. Never enter
 an AWS secret key, password, access/refresh token or client secret in these fields.
 
-Set `VITE_API_BASE_URL` exactly as above and leave `VITE_ACCOUNT_API_BASE_URL` **unset**.
-The Stage 1 guard permits the deployed public discovery API and blocks private
-account APIs until users are provisioned. Do not use localhost URLs for Amplify.
+Set both API URLs exactly as above for Stage 2, only when users are provisioned.
+The guard requires these verified endpoints. Missing/inactive accounts cannot use
+private workspaces. No remote setting was changed by this local implementation.
 
 Vite injects variables at build time: changing Amplify variables requires a new
 build before browsers see the changes. Existing process variables override local
@@ -65,7 +66,7 @@ Use the repository's root `amplify.yml`, with the repository root as the app roo
    selects it; if unavailable, configure/install that version through build settings.
 2. `npm ci` installs exactly the lockfile versions.
 3. `npm run check:production` rejects missing/wrong release settings, localhost
-   callbacks, incorrect discovery URLs, premature account APIs and obvious sensitive `VITE_` variable names. It
+   callbacks, incorrect discovery URLs, unapproved account APIs and obvious sensitive `VITE_` variable names. It
    does not contact AWS or verify Console allowlists.
 4. `npm test` checks models, services, Cognito and production configuration.
 5. `npm run build` creates `dist/`; Amplify publishes only that folder.
@@ -127,7 +128,6 @@ $config = Get-Content deployment/amplify-environment.json -Raw | ConvertFrom-Jso
 foreach ($property in $config.PSObject.Properties) {
   Set-Item -LiteralPath "Env:$($property.Name)" -Value $property.Value
 }
-$env:VITE_ACCOUNT_API_BASE_URL = ''
 npm.cmd run check:production
 npm.cmd run build
 ```
@@ -164,11 +164,10 @@ Amplify's previous successful deployment to roll back through the console.
   claims do not grant staff access. A configured trusted `/me` API must verify `sub`,
   enabled status and server-assigned role. Each backend action must still enforce
   roles and ownership; a hidden dashboard is not a security boundary.
-- Stage 1 connects public discovery only. Profiles, saves, tracking,
-  moderation and reminders still use browser mock data. They can be modified locally,
-  are not confidential between people sharing browser storage, and do not sync across
-  browsers. Do not accept real student records/documents or treat mock administration
-  as authoritative production management.
+- Stage 2 connects student profiles, saves and tracking. Moderation/staff views
+  remain local demonstrations. Recommendations/reminders are calculated locally
+  from server records; dismissals last only for the current session. No legacy local
+  data is imported. Do not treat mock administration as authoritative management.
 - OIDC tokens are stored in sessionStorage and are JavaScript-accessible. Protect
   against XSS, keep dependencies patched and avoid third-party scripts. No production
   Content Security Policy has been enforced/tested in this preparation. Consider a
@@ -177,5 +176,5 @@ Amplify's previous successful deployment to roll back through the console.
   DynamoDB, private S3 documents or CloudWatch application logging. Those remain a
   separate implementation/configuration phase. No secrets are needed in this SPA.
 
-This is prepared for a controlled Stage 1 discovery release after the console settings are
+This is prepared for a controlled Stage 2 student release after the console settings are
 confirmed, not a claim that the complete multi-user backend is production-ready.
