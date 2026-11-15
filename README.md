@@ -1,10 +1,16 @@
 # Multi-University Scholarship Discovery, Recommendation and Tracking System
 
+## Cognito authentication
+
+For the existing AWS Amplify app, follow [the production preparation guide](docs/AMPLIFY-PRODUCTION.md). It includes the exact public environment variables, separate localhost settings, manual SPA rewrite, release checks, and remaining mock-data/security limits. No deployment is automatic from these local changes.
+
+See [Cognito setup and testing](docs/COGNITO-INTEGRATION.md). Login and registration now use Cognito managed login with PKCE. Scholarship and workspace data remain mock/browser-local. Live Cognito configuration and email delivery require manual testing. No deployment has been performed.
+
 ## Backend foundation (November 2026)
 
-Start with [the inspection and beginner backend guide](docs/BACKEND-FOUNDATION.md) and [future AWS deployment steps](docs/AWS-DEPLOYMENT.md). The new Python Lambda backend, DynamoDB adapters, Cognito preparation, private S3 document workflow, CloudWatch/SAM template, and optional API discovery service are prepared locally. **AWS is not connected or deployed.** The default browser demo remains available; cloud authentication and private dashboard UI migration are later steps. The latest Word kick-off report was reviewed on 14 November 2026; [report alignment and remaining gaps](docs/REPORT-ALIGNMENT.md) are documented.
+Start with [the inspection and beginner backend guide](docs/BACKEND-FOUNDATION.md) and [future AWS deployment steps](docs/AWS-DEPLOYMENT.md). The new Python Lambda backend, DynamoDB adapters, Cognito preparation, private S3 document workflow, CloudWatch/SAM template, and optional API discovery service are prepared locally. **AWS is not connected or deployed.** Mock scholarship data remains available; private dashboard APIs still require configuration. The latest Word kick-off report was reviewed on 14 November 2026; [report alignment and remaining gaps](docs/REPORT-ALIGNMENT.md) are documented.
 
-A responsive React + JavaScript website built with Vite. ScholarRise features a black-and-gold design, a destination and university filter sidebar, and the tagline “Your Future Starts Here.” All scholarships and universities are fictional; no AWS services or backend are connected.
+A responsive React + JavaScript website built with Vite. ScholarRise features a black-and-gold design, a destination and university filter sidebar, and the tagline “Your Future Starts Here.” All scholarships and universities are fictional; scholarship and workspace APIs are not connected. Cognito authentication requires the configuration described above.
 
 ## Run locally
 
@@ -41,22 +47,20 @@ The build is written to `dist/`. Add the local runtime to PATH as above if neede
 
 ## Features and walkthrough
 
-1. **Login and registration:** select Register to create a local student account. Use sample details and a unique demo password. Login checks a salted PBKDF2 password hash; raw passwords are not stored. Sessions last in the current browser tab.
+1. **Login and registration:** Login and Register open Cognito managed login and signup. Follow the guide above for verification, recovery, and local callback settings.
 2. **Student profiles:** open My workspace → Student profile. Save your study level, field, GPA (0–4), destination, funding preference, and goals.
 3. **Search and filters:** search names, universities, destinations, fields, and award amounts. Combine destination, university, study-level, and full-tuition filters. Bookmarks are separate for each account; previous bookmarks are retained for guests.
 4. **Recommendations:** open Recommendations after completing a profile. Open, published awards must match study level and minimum GPA. A transparent preference score uses level/GPA (50), field (30), destination (10), and funding (10). This is a rule-based demo, not AI or a probability of acceptance.
 5. **Application tracking:** open scholarship details → Track application. In My workspace → Application tracking, update status, write notes, filter statuses, or remove a tracked application. Nothing is sent to a real university.
 6. **Deadline notifications:** saved scholarships and Planning/Preparing applications generate in-app reminders within a configurable 7-, 14-, or 30-day window. Dismiss individual reminders or switch reminders off. Deadlines use local calendar days and are rechecked every minute while the page is open. Initial fictional deadlines are generated 7–90 days after the first visit and then persisted.
-7. **University dashboard:** Log in → Explore a demo role → university → My workspace. Create, edit, publish, or unpublish the university’s own scholarships. View student-reported submitted application summaries; students’ private notes are not shown.
-8. **Administrator dashboard:** Log in → Explore a demo role → Administrator → My workspace. Manage all scholarships, view submitted application summaries, and enable/disable demo users. The current administrator cannot disable their own account.
-
-The student demo also opens without a password through Log in → Explore a demo role → student. Log out to switch roles. Staff roles cannot be selected during public registration.
+7. **University dashboard:** preserved; access requires a trusted Cognito-protected account API assigning the university role.
+8. **Administrator dashboard:** preserved; access requires a trusted backend administrator role. Public registration never grants staff access. Browser demo accounts no longer provide access.
 
 ## Local prototype limitations
 
 All records are stored in localStorage under `scholarrise-platform-v1`. Clearing browser site data removes demo accounts, catalog edits, profiles, and tracking. Data is not shared across devices or browsers. If browser storage fails, a warning explains that changes remain in memory only.
 
-These browser-only role checks and password hashes are demonstrations, not a production security boundary. Do not use real passwords or personal information. Production use requires server-enforced authorization, secure account/session handling, a database, and a scheduled notification service. There is no AWS connection, email verification, password recovery, real application delivery, or email/push/background notification service.
+Cognito handles authentication, email verification and password recovery. Private workspace records still need backend integration and server authorization before production use. Real application delivery and email/push/background notifications are not connected. Use synthetic workspace data during development.
 
 Google Fonts enhances typography when online; system font fallbacks are included.
 

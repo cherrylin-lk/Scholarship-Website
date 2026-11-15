@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApi } from '../src/services/api.js';
-import { createCognitoAuth } from '../src/services/cognito.js';
 import { createDiscovery } from '../src/services/discovery.js';
 
 const ok = body => ({ ok: true, status: 200, json: async () => body });
@@ -33,16 +32,4 @@ test('discovery follows pagination and keeps demo mode local', async () => {
   assert.deepEqual((await discovery.catalog([])).map(r => r.id), ['a', 'b']);
   const local = createDiscovery();
   assert.equal((await local.catalog([{ id: 1, published: true, name: 'Demo' }, { id: 2, published: false }])).length, 1);
-});
-
-test('Cognito registration cannot request staff roles and tokens stay in the auth adapter', async () => {
-  const requests = [];
-  const auth = createCognitoAuth({ region: 'ap-southeast-1', clientId: 'public-client', fetchImpl: async (_url, args) => { requests.push(args); return ok(args.headers['X-Amz-Target'].endsWith('InitiateAuth') ? { AuthenticationResult: { AccessToken: 'test-access', ExpiresIn: 3600 } } : {}); } });
-  await auth.register('sample@example.test', 'NotARealPassword123!', 'Sample');
-  assert.deepEqual(JSON.parse(requests[0].body).UserAttributes.map(a => a.Name), ['email', 'name']);
-  assert.equal(await auth.getAccessToken(), null);
-  await auth.signIn('sample@example.test', 'NotARealPassword123!');
-  assert.equal(await auth.getAccessToken(), 'test-access');
-  await auth.signOut();
-  assert.equal(await auth.getAccessToken(), null);
 });

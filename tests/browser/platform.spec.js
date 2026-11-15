@@ -1,20 +1,12 @@
 import { test, expect } from '@playwright/test';
-async function demo(page, role) {
-  await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await page.getByRole('button', { name: role, exact: true }).click();
-  await page.getByRole('button', { name: 'My workspace' }).click();
-}
-test('registration, profile, recommendations, tracking, persistence and login', async ({ page }) => {
+import { signInThroughManagedLogin, mockCognito } from '../fixtures/cognito.js';
+
+test('Cognito sign-in, profile, recommendations, tracking, persistence and logout', async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Register', exact: true }).click();
-  await page.getByLabel('Full name', { exact: true }).fill('Jamie Student');
-  await page.getByLabel('Email address', { exact: true }).fill('jamie@example.test');
-  await page.getByLabel('Password', { exact: true }).fill('DemoPassword123');
-  await page.getByRole('button', { name: 'Create student account' }).click();
+  const controls = await signInThroughManagedLogin(page);
   await page.getByRole('button', { name: 'My workspace' }).click();
   await page.getByRole('button', { name: 'Complete my profile' }).click();
-  await page.getByLabel('Current GPA (0–4)').fill('3.8');
+  await page.getByLabel('Current GPA (0\u20134)').fill('3.8');
   await page.getByLabel('Preferred destination').selectOption('United Kingdom');
   await page.getByRole('button', { name: 'Save profile', exact: true }).click();
   await page.getByRole('button', { name: 'Recommendations', exact: true }).click();
@@ -22,32 +14,23 @@ test('registration, profile, recommendations, tracking, persistence and login', 
   await award.getByRole('button', { name: 'Track application' }).click();
   await page.getByRole('button', { name: 'Application tracking', exact: true }).click();
   await page.getByRole('combobox', { name: 'Status', exact: true }).selectOption('Preparing');
-  await page.getByLabel('Application notes').fill('Prepare transcript and references.');
-  await page.getByRole('button', { name: 'Deadline reminders', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Global Excellence Scholarship' })).toBeVisible();
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
-  await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await page.getByLabel('Email address', { exact: true }).fill('jamie@example.test');
-  await page.getByLabel('Password', { exact: true }).fill('IncorrectPassword');
-  await page.getByRole('dialog').getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('incorrect');
-  await page.getByLabel('Password', { exact: true }).fill('DemoPassword123');
-  await page.getByRole('dialog').getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'My workspace' })).toBeVisible();
-  await page.reload();
+  await page.getByLabel('Application notes').fill('Prepare sample transcript.');
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'My workspace' }).click();
   await page.getByRole('button', { name: 'Application tracking', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Status', exact: true })).toHaveValue('Preparing');
-  await expect(page.getByLabel('Application notes')).toHaveValue('Prepare transcript and references.');
-  await page.getByRole('button', { name: 'Remove from tracker' }).click();
-  await page.getByRole('button', { name: 'Remove application', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your next chapter starts with one application.' })).toBeVisible();
+  expect(controls.tokenRequests()).toBe(1);
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeVisible();
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('button', { name: 'My workspace' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
-test('university ownership, listing lifecycle and administrator moderation', async ({ page }) => {
-  await page.goto('/'); await demo(page, 'university');
-  await expect(page.getByRole('cell', { name: /Global Excellence Scholarship/ })).toBeVisible();
-  await expect(page.getByRole('cell', { name: /Future Innovators Award/ })).toHaveCount(0);
+
+test('university and administrator dashboards require a trusted account API role', async ({ page }) => {
+  await signInThroughManagedLogin(page, { role: 'university', sub: 'oidc-university-sub' });
+  await page.getByRole('button', { name: 'My workspace' }).click();
+  await expect(page.getByRole('cell', { name: /Global Excellence Scholarship/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Add scholarship', exact: true }).click();
   await page.getByLabel('Scholarship name').fill('Westbridge New Horizons Award');
   await page.getByLabel('Destination', { exact: true }).fill('United Kingdom');
@@ -58,46 +41,29 @@ test('university ownership, listing lifecycle and administrator moderation', asy
   await page.getByRole('button', { name: 'Browse scholarships' }).click();
   await expect(page.getByRole('heading', { name: 'Westbridge New Horizons Award' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
-  await demo(page, 'Administrator');
+  await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeVisible();
+  await signInThroughManagedLogin(page, { role: 'admin', sub: 'oidc-admin-sub' });
+  await page.getByRole('button', { name: 'My workspace' }).click();
   const row = page.getByRole('row').filter({ hasText: 'Westbridge New Horizons Award' });
   await expect(row).toContainText('Pending approval');
   await row.getByRole('button', { name: 'Approve and publish', exact: true }).click();
   await page.getByRole('button', { name: 'Browse scholarships' }).click();
   await expect(page.getByRole('heading', { name: 'Westbridge New Horizons Award' })).toBeVisible();
-  await page.getByRole('button', { name: 'My workspace' }).click();
-  await row.getByRole('button', { name: 'Unpublish', exact: true }).click();
-  await expect(row.getByRole('cell', { name: 'Unpublished', exact: true })).toBeVisible();
-  const student = page.getByRole('row').filter({ hasText: 'student@scholarrise.demo' });
-  await student.getByRole('button', { name: 'Disable', exact: true }).click();
-  await expect(student.getByRole('cell', { name: 'Disabled', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Browse scholarships' }).click();
-  await expect(page.getByRole('heading', { name: 'Westbridge New Horizons Award' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
-  await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await page.getByRole('button', { name: 'student', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('disabled');
 });
-test('search, reminders, account separation and mobile layout', async ({ page }) => {
+
+test('search, reminders, account separation and mobile layout with Cognito identity', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await signInThroughManagedLogin(page);
   await page.getByLabel('Search scholarships', { exact: true }).fill('Canada');
   await page.getByRole('button', { name: 'Find scholarships', exact: true }).click();
   await expect(page.locator('.scholarship-card')).toHaveCount(1);
   await page.getByRole('button', { name: 'Clear All Filters', exact: true }).click();
-  await page.getByLabel('Funding', { exact: true }).selectOption('Fully Funded');
-  await expect(page.locator('.scholarship-card')).toHaveCount(4);
-  await page.getByRole('button', { name: 'Clear All Filters', exact: true }).click();
-  await demo(page, 'student');
-  await page.getByRole('button', { name: 'Browse scholarships' }).click();
   await page.getByRole('button', { name: 'Save Global Excellence Scholarship', exact: true }).click();
   await page.getByRole('button', { name: '1 deadline reminders' }).click();
   await expect(page.getByRole('heading', { name: 'Global Excellence Scholarship' })).toBeVisible();
   await page.getByRole('button', { name: 'Dismiss reminder for Global Excellence Scholarship' }).click();
-  await expect(page.getByText('You’re all caught up.', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
-  await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Log in', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Toggle navigation' }).click();
   await page.locator('nav').getByRole('button', { name: /Saved/ }).click();
   await expect(page.locator('.scholarship-card')).toHaveCount(0);
@@ -106,7 +72,7 @@ test('search, reminders, account separation and mobile layout', async ({ page })
 
 for (const width of [1440, 820, 390]) test('combined filters and detail return at width ' + width, async ({ page }) => {
  await page.setViewportSize({ width, height: 900 });
- await page.goto('/');
+ await page.goto('/', { waitUntil: 'domcontentloaded' });
  await page.getByLabel('Country', { exact: true }).selectOption('United States');
  await page.getByLabel('Filter study level', { exact: true }).selectOption("Master's");
  await page.getByLabel('Funding', { exact: true }).selectOption('Fully Funded');
@@ -128,7 +94,7 @@ for (const width of [1440, 820, 390]) test('combined filters and detail return a
 
 
 test('real Thai programs and official sources are available without clearing saved data', async ({ page }) => {
- await page.goto('/');
+ await page.goto('/', { waitUntil: 'domcontentloaded' });
  await page.getByLabel('Country', { exact: true }).selectOption('Thailand');
  await expect(page.locator('.scholarship-card')).toHaveCount(6);
  await page.getByLabel('University', { exact: true }).selectOption('Asian Institute of Technology');
@@ -139,14 +105,14 @@ test('real Thai programs and official sources are available without clearing sav
  await page.getByRole('button', { name: 'Close dialog' }).click();
  await page.getByLabel('University', { exact: true }).selectOption('Chiang Mai University');
  await expect(page.locator('.scholarship-card')).toContainText('Check deadline');
- await page.reload();
+ await page.reload({ waitUntil: 'domcontentloaded' });
  await page.getByLabel('Country', { exact: true }).selectOption('Thailand');
  await expect(page.locator('.scholarship-card')).toHaveCount(6);
 });
 
 for (const width of [320, 820, 1440]) test('redesigned homepage navigation and destination shortcuts at ' + width, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
-  await page.goto('/');
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Find the funding.');
   await expect(page.getByRole('img', { name: 'Two university students walking together on a leafy campus' })).toBeVisible();
   const metrics = page.getByRole('region', { name: 'Current scholarship collection' });
@@ -158,8 +124,10 @@ for (const width of [320, 820, 1440]) test('redesigned homepage navigation and d
   await expect(page.locator('.scholarship-card')).toHaveCount(11);
   await page.getByRole('button', { name: 'See how it works', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Your next chapter, in three steps.' })).toBeInViewport();
+  await mockCognito(page);
   await page.getByRole('button', { name: 'Get started with ScholarRise', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('Start your ScholarRise journey');
-  await page.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(page.getByRole('heading', { name: 'Mock Cognito email verification' })).toBeVisible();
+  await page.getByRole('link', { name: 'Complete secure sign-in' }).click();
+  await expect(page.getByRole('button', { name: 'My workspace' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

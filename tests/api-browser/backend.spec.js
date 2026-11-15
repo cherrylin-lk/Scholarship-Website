@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('React reads public Lambda-compatible API data through its service layer', async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.getByText('API discovery preview.', { exact: false })).toBeVisible();
   await expect(page.locator('.scholarship-card')).toHaveCount(2);
   await page.getByLabel('Country', { exact: true }).selectOption('Japan');

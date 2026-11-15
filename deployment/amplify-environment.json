@@ -1,0 +1,9 @@
+{
+  "VITE_COGNITO_REGION": "ap-southeast-2",
+  "VITE_COGNITO_USER_POOL_ID": "ap-southeast-2_ONSDhlqBo",
+  "VITE_COGNITO_CLIENT_ID": "4tdlqbsg2jrr3qvbj5atjh7qig",
+  "VITE_COGNITO_DOMAIN": "https://ap-southeast-2onsdhlqbo.auth.ap-southeast-2.amazoncognito.com",
+  "VITE_COGNITO_REDIRECT_URI": "https://main.d1s9suck9hx25r.amplifyapp.com/",
+  "VITE_COGNITO_LOGOUT_URI": "https://main.d1s9suck9hx25r.amplifyapp.com/",
+  "VITE_DISCOVERY_SOURCE": "demo"
+}

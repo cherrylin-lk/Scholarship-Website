@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Bell, Bookmark, LayoutDashboard, LogOut, Plus, Sparkles, UserRound, X, ArrowRight, CalendarDays, ShieldCheck, Building2 } from 'lucide-react';
-import { dateAfter, dateLabel, daysLeft, emptyProfile, fields, localDay, notifications, passwordHash, recommend, seedStore, statuses, studyLevels, fundingTypes, levelsOf, fundingOf, normalizeScholarship, isPublic, addThaiScholarships } from './model';
+import { dateAfter, dateLabel, daysLeft, emptyProfile, fields, localDay, notifications, recommend, seedStore, statuses, studyLevels, fundingTypes, levelsOf, fundingOf, normalizeScholarship, isPublic, addThaiScholarships } from './model';
 import './portal.css';
+import { authClient, authConfig, resolveAccount } from './services/auth.js';
 
 const Context = createContext(null);
 export const usePortal = () => useContext(Context);
@@ -19,21 +20,68 @@ function loadStore() {
 
 export function PortalProvider({ children }) {
   const [store, setStore] = useState(loadStore);
-  const [session, setSession] = useState(() => { try { return sessionStorage.getItem('scholarrise-session'); } catch { return null; } });
+  const [account, setAccount] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
   const [view, setView] = useState('discover');
   const [auth, setAuth] = useState(null);
   const [toast, setToast] = useState('');
   const [storageError, setStorageError] = useState(false);
   const [today, setToday] = useState(localDay());
-  const user = store.users.find(u => u.id === session && u.active) || null;
+  const cached = account && store.users.find(u => u.id === account.id && u.cognito === true);
+  const user = account ? { ...account, name: cached?.name || account.name, profile: { ...emptyProfile, ...account.profile, ...cached?.profile } } : null;
   useEffect(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); setStorageError(false); } catch { setStorageError(true); } }, [store]);
-  useEffect(() => { try { if (session) sessionStorage.setItem('scholarrise-session', session); else sessionStorage.removeItem('scholarrise-session'); } catch { /* Session remains in memory. */ } }, [session]);
+  useEffect(() => {
+    let alive = true, generation = 0;
+    const accept = async oidcUser => {
+      const current = ++generation;
+      setAccount(null);
+      if (!oidcUser) { if (alive) setAuthLoading(false); return; }
+      try {
+        const verified = await resolveAccount(oidcUser);
+        if (alive && current === generation) { setAccount(verified); setAuthLoading(false); setAuthError(''); }
+      } catch (error) {
+        if (alive && current === generation) {
+          setAuthLoading(false);
+          setAuthError(error.message.startsWith('Verify your email') ? error.message : 'Your account could not be verified. Please sign in again.');
+          await authClient.clearSession();
+        }
+      }
+    };
+    const onError = message => { if (alive) { setAccount(null); setAuthLoading(false); setAuthError(message); } };
+    const unsubscribe = authClient.subscribe(accept, onError);
+    authClient.initialize().then(value => { if (alive) void accept(value); }).catch(() => onError('Sign-in could not be completed. Please try again from ScholarRise.'));
+    return () => { alive = false; generation++; unsubscribe(); };
+  }, []);
+  useEffect(() => {
+    if (!account) return;
+    setStore(previous => {
+      if (previous.users.some(u => u.id === account.id && u.cognito === true)) return previous;
+      return { ...previous, users: [...previous.users, { id: account.id, name: account.name, email: account.email,
+        role: 'student', active: true, cognito: true, profile: { ...emptyProfile, ...account.profile } }] };
+    });
+  }, [account]);
+  async function beginAuth(mode) {
+    if (!mode) { setAuth(null); return; }
+    if (authLoading || authBusy) return;
+    setAuthBusy(true); setAuthError(''); setAuth(null);
+    try { await (mode === 'register' ? authClient.register() : mode === 'recovery' ? authClient.recoverPassword() : authClient.signIn()); }
+    catch { setAuthError(authConfig.configured ? 'Cognito could not be opened. Please try again.' : authConfig.message); setAuth(mode); }
+    finally { setAuthBusy(false); }
+  }
+  async function logout() {
+    setAccount(null); setView('discover'); setAuthBusy(true);
+    try { await authClient.signOut(); }
+    catch { setAuthError('You are signed out of ScholarRise. Cognito sign-out could not finish; please retry.'); }
+    finally { setAuthBusy(false); }
+  }
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 5000); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => { const timer = setInterval(() => setToday(localDay()), 60000); return () => clearInterval(timer); }, []);
-  function go(next) { if (next !== 'discover' && !user) { setAuth('login'); return; } setView(next); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  function go(next) { if (next !== 'discover' && !user) { void beginAuth('login'); return; } setView(next); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   const alerts = notifications(store, user, today);
   function track(s) {
-    if (!user) { setAuth('login'); return; }
+    if (!user) { void beginAuth('login'); return; }
     if (user.role !== 'student') { setToast('Use a student account to track applications.'); return; }
     if (!s.deadline) { setToast('Check the official announcement for a deadline before tracking this program.'); return; }
     if (!isPublic(s) || daysLeft(s.deadline, today) < 0) { setToast('This scholarship is closed.'); return; }
@@ -41,9 +89,10 @@ export function PortalProvider({ children }) {
     setStore(previous => ({ ...previous, applications: [...previous.applications, { id: crypto.randomUUID(), userId: user.id, scholarshipId: s.id, status: 'Planning', notes: '', updatedAt: new Date().toISOString() }] }));
     setToast('Added to your application tracker. No application has been sent.');
   }
-  return <Context.Provider value={{ store, setStore, user, view, go, setAuth, setSession, setToast, alerts, track, today }}>
+  return <Context.Provider value={{ store, setStore, user, view, go, setAuth: beginAuth, logout, authLoading, authBusy, authError, setToast, alerts, track, today }}>
     {storageError && <div className="storage-warning" role="alert">Browser storage is unavailable or full. Changes will last only for this session.</div>}
     {children}
+    {authError && !auth && <div className="portal-toast" role="alert">{authError}<button aria-label="Dismiss sign-in message" onClick={() => setAuthError('')}><X size={18}/></button></div>}
     {auth && <AuthDialog mode={auth} setMode={setAuth}/>}
     {toast && <div className="portal-toast" role="status">{toast}<button aria-label="Dismiss message" onClick={() => setToast('')}><X size={16}/></button></div>}
   </Context.Provider>;
@@ -56,38 +105,18 @@ export function Dialog({ title, onClose, children }) {
 }
 
 function AuthDialog({ mode, setMode }) {
-  const { store, setStore, setSession, setToast } = usePortal();
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  async function submit(e) {
-    e.preventDefault(); setError(''); setBusy(true);
-    const data = Object.fromEntries(new FormData(e.currentTarget));
-    const email = data.email.trim().toLowerCase();
-    try {
-      if (mode === 'register') {
-        if (!data.name.trim()) throw new Error('Enter your name.');
-        if (store.users.some(u => u.email === email)) throw new Error('An account with this email already exists.');
-        const salt = crypto.randomUUID();
-        const account = { id: crypto.randomUUID(), name: data.name.trim(), email, role: 'student', active: true, salt, password: await passwordHash(data.password, salt), profile: { ...emptyProfile } };
-        setStore(previous => ({ ...previous, users: [...previous.users, account] })); setSession(account.id); setMode(null); setToast('Account created. Complete your student profile to get recommendations.');
-      } else {
-        const account = store.users.find(u => u.email === email && !u.demo);
-        if (!account || !account.active || await passwordHash(data.password, account.salt) !== account.password) throw new Error('Email or password is incorrect, or this demo account is disabled.');
-        setSession(account.id); setMode(null); setToast(`Welcome back, ${account.name}.`);
-      }
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
-  }
-  function demo(role) { const account = store.users.find(u => u.demo && u.role === role && u.active); if (!account) { setError('This demo account is disabled.'); return; } setSession(account.id); setMode(null); setToast(`Signed in to the ${role} demo. Use My workspace to explore.`); }
-  return <Dialog title={mode === 'register' ? 'Start your ScholarRise journey' : 'Welcome back to ScholarRise'} onClose={() => setMode(null)}><p>Local prototype. Accounts and data stay in this browser. Use sample details and a unique demo password.</p><form className="portal-form" onSubmit={submit}>
-    {mode === 'register' && <label>Full name<input name="name" required maxLength={80} autoComplete="name"/></label>}
-    <label>Email address<input name="email" type="email" required autoComplete="email" maxLength={160}/></label><label>Password<input name="password" type="password" required minLength={8} maxLength={128} autoComplete={mode === 'register' ? 'new-password' : 'current-password'}/></label>
-    {error && <p className="form-error" role="alert">{error}</p>}<button className="button" disabled={busy}>{busy ? 'Please wait…' : mode === 'register' ? 'Create student account' : 'Log in'}<ArrowRight size={16}/></button>
-  </form><button className="text-link" onClick={() => { setError(''); setMode(mode === 'register' ? 'login' : 'register'); }}>{mode === 'register' ? 'Already registered? Log in' : 'New here? Create an account'}</button><div className="demo-access"><h3>Explore a demo role</h3><p>No password needed. University and administrator access are demo-only.</p><div className="action-row">{['student', 'university', 'admin'].map(role => <button className="secondary-button" key={role} onClick={() => demo(role)}>{role === 'admin' ? 'Administrator' : role}</button>)}</div></div></Dialog>;
+  const { setAuth, authBusy, authError } = usePortal();
+  return <Dialog title={mode === 'register' ? 'Start your ScholarRise journey' : mode === 'recovery' ? 'Recover your ScholarRise account' : 'Welcome back to ScholarRise'} onClose={() => setMode(null)}>
+    <p>Secure sign-in, student registration, email verification, and password recovery are handled by Amazon Cognito. Your password is never checked or stored by this website.</p>
+    {authError && <p className="form-error" role="alert">{authError}</p>}
+    <div className="action-row"><button className="button" disabled={authBusy} onClick={() => setAuth(mode)}>Continue to Cognito <ArrowRight size={18}/></button><button className="text-link" disabled={authBusy} onClick={() => setAuth('recovery')}>Recover your password</button></div>
+    {!authConfig.configured && <p>Configure the public Cognito variables listed in .env.example, then restart Vite.</p>}
+  </Dialog>;
 }
 
 export function AccountNav() {
-  const { user, go, setAuth, alerts, setSession } = usePortal();
-  return <div className="account-nav">{user ? <><button className="notification-button" aria-label={`${alerts.length} deadline reminders`} onClick={() => go('notifications')}><Bell size={19}/>{alerts.length > 0 && <span>{alerts.length}</span>}</button><button className="secondary-button" onClick={() => go(user.role === 'student' ? 'overview' : user.role)}><UserRound size={15}/><span>My workspace</span></button><button className="signout-button" aria-label="Log out" onClick={() => { setSession(null); go('discover'); }}><LogOut size={17}/></button></> : <><button className="text-link" onClick={() => setAuth('login')}>Log in</button><button className="button" onClick={() => setAuth('register')}>Register</button></>}</div>;
+  const { user, go, setAuth, alerts, logout, authLoading, authBusy } = usePortal();
+  return <div className="account-nav">{user ? <><button className="notification-button" aria-label={`${alerts.length} deadline reminders`} onClick={() => go('notifications')}><Bell size={19}/>{alerts.length > 0 && <span>{alerts.length}</span>}</button><button className="secondary-button" onClick={() => go(user.role === 'student' ? 'overview' : user.role)}><UserRound size={15}/><span>My workspace</span></button><button className="signout-button" aria-label="Log out" disabled={authBusy} onClick={logout}><LogOut size={17}/></button></> : <><button className="text-link" disabled={authLoading || authBusy} onClick={() => setAuth('login')}>Log in</button><button className="button" disabled={authLoading || authBusy} onClick={() => setAuth('register')}>Register</button></>}</div>;
 }
 
 export function Workspace() {
@@ -95,9 +124,9 @@ export function Workspace() {
   if (!user) return <main className="container workspace"><h1>Sign in to open your workspace.</h1></main>;
   const links = user.role === 'student' ? [['overview', 'Overview', LayoutDashboard], ['profile', 'Student profile', UserRound], ['recommendations', 'Recommendations', Sparkles], ['applications', 'Application tracking', Bookmark], ['notifications', 'Deadline reminders', Bell]] : user.role === 'university' ? [['university', 'University dashboard', Building2]] : [['admin', 'Administrator dashboard', ShieldCheck]];
   const activeView = links.some(([key]) => key === view) ? view : links[0][0];
-  return <main className="container workspace"><div className="workspace-heading"><div><div className="section-kicker">YOUR SCHOLARRISE WORKSPACE</div><h1>{user.role === 'student' ? `Welcome, ${user.name.split(' ')[0]}.` : user.role === 'university' ? 'University dashboard' : 'Administrator dashboard'}</h1><p>{user.role === 'student' ? 'Your goals, opportunities, and next steps in one place.' : user.role === 'university' ? user.university : 'Manage this browser’s demo users and scholarship catalog.'}</p></div><span className="sample-label">Local demo · {user.role}</span></div><div className="workspace-layout"><aside className="workspace-menu">{links.map(([key, label, Icon]) => <button key={key} className={activeView === key ? 'current' : ''} onClick={() => go(key)}><Icon size={18}/>{label}</button>)}<button onClick={() => go('discover')}><ArrowRight size={18}/>Browse scholarships</button></aside><section className="workspace-content">
+  return <main className="container workspace"><div className="workspace-heading"><div><div className="section-kicker">YOUR SCHOLARRISE WORKSPACE</div><h1>{user.role === 'student' ? `Welcome, ${user.name.split(' ')[0]}.` : user.role === 'university' ? 'University dashboard' : 'Administrator dashboard'}</h1><p>{user.role === 'student' ? 'Your goals, opportunities, and next steps in one place.' : user.role === 'university' ? user.university : 'Manage this browser’s demo users and scholarship catalog.'}</p></div><span className="sample-label">Mock data · {user.role}</span></div><div className="workspace-layout"><aside className="workspace-menu">{links.map(([key, label, Icon]) => <button key={key} className={activeView === key ? 'current' : ''} onClick={() => go(key)}><Icon size={18}/>{label}</button>)}<button onClick={() => go('discover')}><ArrowRight size={18}/>Browse scholarships</button></aside><section className="workspace-content">
     {activeView === 'overview' && <Overview/>}{activeView === 'profile' && <Profile/>}{activeView === 'recommendations' && <Recommendations/>}{activeView === 'applications' && <Applications/>}{activeView === 'notifications' && <Notifications/>}{activeView === 'university' && user.role === 'university' && <Management/>}{activeView === 'admin' && user.role === 'admin' && <Management admin/>}
-  </section></div><p className="demo-note">Local demonstration. No applications are sent, and no email or background notifications are delivered.</p></main>;
+  </section></div><p className="demo-note">Signed in with Cognito. Workspace data is currently stored in this browser; application submission and background notifications are not connected.</p></main>;
 }
 
 function Overview() {

@@ -3,7 +3,10 @@ frontend:
   phases:
     preBuild:
       commands:
+        - nvm use 24
         - npm ci
+        - npm run check:production
+        - npm test
     build:
       commands:
         - npm run build
