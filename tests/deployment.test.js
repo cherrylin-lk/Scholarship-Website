@@ -22,7 +22,7 @@ test('production callback/logout match Amplify while localhost remains independe
 
 test('Stage 1 permits only the deployed discovery API and keeps account APIs disabled', () => {
   assert.equal(env.VITE_DISCOVERY_SOURCE, 'api');
-  assert.equal(env.VITE_API_BASE_URL, 'https://iwiirfnp4a7.execute-api.ap-southeast-2.amazonaws.com');
+  assert.equal(env.VITE_API_BASE_URL, 'https://1wirfnp4a7.execute-api.ap-southeast-2.amazonaws.com');
   assert.equal(env.VITE_ACCOUNT_API_BASE_URL, undefined);
   assert.deepEqual(productionConfigErrors(env), []);
   assert.deepEqual(productionConfigErrors({ ...env, VITE_ACCOUNT_API_BASE_URL: '' }), []);

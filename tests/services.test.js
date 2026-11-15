@@ -37,7 +37,7 @@ test('discovery follows pagination and keeps demo mode local', async () => {
 test('AWS discovery requests are public and failures never substitute demo records', async () => {
   const records = [{ id: 'demo', name: 'Local demo', published: true, approvalStatus: 'approved' }];
   let calls = 0;
-  const discovery = createDiscovery({ source: 'api', baseUrl: 'https://iwiirfnp4a7.execute-api.ap-southeast-2.amazonaws.com',
+  const discovery = createDiscovery({ source: 'api', baseUrl: 'https://1wirfnp4a7.execute-api.ap-southeast-2.amazonaws.com',
     fetchImpl: async (url, options) => {
       calls++;
       assert.equal(options.headers.Authorization, undefined);

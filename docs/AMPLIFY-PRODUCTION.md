@@ -20,7 +20,7 @@ may label this under App settings). Add these values for the `main` branch:
 | `VITE_COGNITO_REDIRECT_URI` | `https://main.d1s9suck9hx25r.amplifyapp.com/` |
 | `VITE_COGNITO_LOGOUT_URI` | `https://main.d1s9suck9hx25r.amplifyapp.com/` |
 | `VITE_DISCOVERY_SOURCE` | `api` |
-| `VITE_API_BASE_URL` | `https://iwiirfnp4a7.execute-api.ap-southeast-2.amazonaws.com` |
+| `VITE_API_BASE_URL` | `https://1wirfnp4a7.execute-api.ap-southeast-2.amazonaws.com` |
 
 The same public values are in `deployment/amplify-environment.json` for reference.
 Amplify does **not** automatically read this JSON file; enter the variables in its

@@ -11,7 +11,7 @@ private workspaces. No React source, CSS, images, navigation or layout was chang
 | Variable | Value |
 | --- | --- |
 | `VITE_DISCOVERY_SOURCE` | `api` |
-| `VITE_API_BASE_URL` | `https://iwiirfnp4a7.execute-api.ap-southeast-2.amazonaws.com` |
+| `VITE_API_BASE_URL` | `https://1wirfnp4a7.execute-api.ap-southeast-2.amazonaws.com` |
 | `VITE_ACCOUNT_API_BASE_URL` | **Unset** (remove any value) |
 
 Keep **all existing `VITE_COGNITO_*` values unchanged**, including production
