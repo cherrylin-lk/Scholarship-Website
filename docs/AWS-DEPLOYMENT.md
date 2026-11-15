@@ -1,75 +1,150 @@
-# ScholarRise: future AWS deployment, not yet executed
+# ScholarRise backend: existing Cognito deployment plan
 
-These instructions are for a later, explicitly authorized development deployment. Running `sam deploy`, creating an Amplify app, enabling backups or storing data can incur charges. No command in this document has been executed against AWS during foundation work. Use synthetic data and a dedicated development account/profile.
+Updated 15 November 2026. The user has since confirmed deployment of
+`scholarrise-group9-backend` in ap-southeast-2, successful `/health` and
+`/scholarships` responses, and two approved fictional DynamoDB records. Amplify and
+Cognito already work. The preparation steps below document the original deployment
+review; do not redeploy the backend as part of the Stage 1 frontend release.
+Private account provisioning and end-to-end workspace integration remain unfinished.
+No AWS deployment commands were run by the agent during this release preparation.
 
-## Resources required
+## What changed
 
-The prepared `infrastructure/template.json` defines five DynamoDB tables (with two scholarship GSIs), two Python Lambda functions, an API Gateway HTTP API with a Cognito JWT authorizer, Cognito user pool/public app client and three groups, a private encrypted versioned S3 bucket with TLS-only policy, scoped Lambda IAM roles, CloudWatch log groups (14-day retention), and Lambda execution-error and HTTP API 5xx alarms with no SNS actions. Amplify Hosting is configured separately through GitHub; `amplify.yml` builds the existing React/Vite project. VS Code and Jira remain development/project tools, not backend services.
+`infrastructure/generate-template.cjs` and its generated `template.json` now reference:
 
-**Retained resources:** tables, the bucket and Cognito pool are retained on stack deletion/replacement to protect data. This means deleting a stack will not stop all storage/backup charges. Review and clean up retained development resources deliberately after exporting needed data. No automatic deletion tool is supplied.
+- Existing pool: `ap-southeast-2_ONSDhlqBo`.
+- Existing public SPA client: `4tdlqbsg2jrr3qvbj5atjh7qig`.
+- CORS origin: `https://main.d1s9suck9hx25r.amplifyapp.com` (no trailing slash).
 
-## Before any cloud creation
+These are public identifiers. Parameters have defaults and restrict the selected
+pool/client to the existing ScholarRise values. A CloudFormation rule rejects regions
+other than **ap-southeast-2**. No Cognito pool, client, domain, group or custom resource
+is created. No existing Cognito settings are modified, even by the future stack.
 
-1. Review the completed Word-report comparison in `REPORT-ALIGNMENT.md` and resolve the remaining implementation/design decisions. Repeat the comparison if the report changes.
-2. Choose your AWS region, development account, stack name and exact allowed frontend origin. Confirm regional support, quotas, budget and expected costs. Do not embed AWS keys in React or `VITE_*` values.
-3. Install AWS CLI and AWS SAM CLI locally, use an operator identity through a named profile/SSO, and restrict deployment/provisioning access. These are operator tools, not browser credentials.
-4. Run all offline tests and template validation. Review the template and IAM statements. The API role cannot grant Cognito groups or create IAM resources; the provisioning Lambda can only write the Users table.
-5. Confirm the explicit deployment instruction. Do not treat building/validating the template as permission to create infrastructure.
+The JWT issuer is the Cognito **issuer URL**, not the managed-login domain:
+`https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_ONSDhlqBo`.
+The JWT audience is the existing SPA client ID. Protected routes require `openid`,
+which is already requested by the SPA. API Gateway checks signatures, issuer, expiry,
+audience/client_id and scope. Lambda also requires `token_use=access`, the expected
+issuer/client and an active Users record. An ID token must not be used for API calls.
+`openid` grants no application role. University/admin rights come only from the
+trusted DynamoDB Users record, with ownership enforced for university operations.
 
-## Later: deploy the backend manually
+## Resources that a future deployment would create
 
-Run from the repository root only after the above review:
+| Resource | Definition |
+| --- | --- |
+| Five DynamoDB tables | UsersTable, ScholarshipsTable, ActivityTable, NotificationsTable, DocumentsTable |
+| Two scholarship GSIs | StatusIndex and OwnerIndex, unchanged |
+| One private S3 bucket | Encrypted, public access blocked, versioned, with TLS-only bucket policy |
+| Two Python 3.13 Lambda functions | API handler and student provisioning handler |
+| Two execution IAM roles | Existing scoped application-data and student-only provisioning policies |
+| One HTTP API | JWT authorizer, default stage, CORS and Lambda invocation permissions |
+| Three log groups | API Lambda, provisioning Lambda and HTTP API access logs; 14-day retention |
+| Two alarms | Lambda execution errors and HTTP API 5xx; no SNS notification action |
+| Provisioning invocation permission | Only the existing pool in the deployment account can invoke the new provisioning Lambda |
+
+The table and bucket physical names are generated by CloudFormation. Use stack
+outputs for Lambda environment variables and later integration; do not guess names.
+There is no seed-data import, scheduled reminder worker or frontend deployment.
+SAM packaging may also require an artifact S3 bucket outside this template. Review
+whether to use an approved existing artifact bucket before deploying.
+
+## What remains manual after an approved backend deployment
+
+The stack outputs `ProvisionFunctionArn`, but deliberately **does not attach it** to
+Cognito. If approved, inspect the existing pool's post-confirmation trigger first.
+Do not overwrite another trigger. Add the new function through a reviewed console
+change only when its code, permission and table are ready. A trigger failure can
+interrupt signup confirmation, so test with a synthetic new account and plan rollback.
+The trigger handles confirmed self-signup and creates only student records. The
+resource policy limits invocation to the existing pool and account.
+
+Existing confirmed users will not be processed retroactively. Before enabling `/me`
+in React, safely provision their Users records using their real Cognito `sub` and
+student role. Staff roles require a separately approved operator workflow. The
+existing `backend/provision_staff.py` also attempts Cognito group synchronization:
+this template no longer creates groups, so do **not** run it blindly with `--apply`.
+It can write a database role before failing group synchronization if groups are
+missing. Review/adapt that workflow separately; groups are unnecessary for current
+backend authorization. No staff-account or group changes were made here.
+
+Frontend code and Amplify variables are unchanged. Keep mock mode working until
+backend endpoints are tested. Enabling real APIs later also requires updating the
+frontend production configuration guard, authorizing CORS and migrating each private
+screen to API storage. Switching on `/me` alone does not migrate profile/tracking data.
+
+## Local checks (no AWS calls)
+
+From the project root in PowerShell:
 
 ```powershell
-sam validate --lint --template-file infrastructure/template.json
-sam build --template-file infrastructure/template.json
-sam deploy --guided --profile YOUR_DEVELOPMENT_PROFILE
+$env:Path = "$PWD\.tools\node-v24.22.3-win-x64;$env:Path"
+node infrastructure/generate-template.cjs
+.\.venv\Scripts\cfn-lint.exe infrastructure/template.json -r ap-southeast-2
+$env:PYTHONPATH = "$PWD\backend"
+.\.venv\Scripts\python.exe -m unittest discover -s backend/tests -v
+npm.cmd test
+npm.cmd run build
 ```
 
-Use an exact `FrontendOrigin`, such as the HTTPS Amplify branch origin without a trailing slash, or `http://localhost:5173` for a development-only stack. Do not allow wildcard production origins. Confirm the proposed change set before executing it. SAM's artifact bucket and deployment artifacts can also incur storage charges. The template caps API throttling and Lambda concurrency but does not guarantee a cost ceiling.
+cfn-lint 1.60.1 validated the SAM template locally without findings. The SAM CLI
+was not available, so SAM packaging/build and an AWS-side change-set validation
+were not run. Local validation does not verify that the supplied pool/client exist
+in the selected account or that the deployment role has sufficient permissions.
 
-Record the stack outputs: API URL, region, user pool ID, public app client ID, table names and document bucket name. The API is empty initially; the SAM template does not import demo records or local accounts. Public `/health` is a liveness response, not an integration test. The private catch-all route is JWT-protected; public GET routes are explicit exceptions. No Lambda function URL should be created.
+## Checks before any deployment
 
-## Cognito and staff provisioning
+1. Obtain the professor/account owner's approval for the intended services and
+   budget if your course or AWS Academy account requires it. This repository cannot
+   determine your professor's approval rules. Confirm whether creating IAM roles and
+   setting reserved Lambda concurrency are permitted; request an approved deployment
+   role rather than granting AdministratorAccess to bypass a lab restriction.
+2. Select the account that owns the existing pool and region **ap-southeast-2**.
+   Verify the existing client belongs to this pool, uses code + PKCE without a secret,
+   and requests `openid email profile`. Preserve your working callback/logout URLs.
+3. Review the five-table design, PITR, retention and S3 versioning costs. Confirm
+   project credits/budget alerts and a cleanup plan. No budget resource is included.
+4. Review scoped IAM roles and deployment permissions. CloudFormation/SAM needs
+   permission to create the listed resources and pass their execution roles, plus
+   IAM capability acknowledgement (`CAPABILITY_IAM`). Runtime roles cannot manage
+   Cognito, IAM, groups or infrastructure. The provisioner can only write Users and
+   its own logs. Existing IAM policy definitions were preserved byte-for-byte.
+5. Check Lambda concurrency quotas: this API reserves five concurrent executions.
+   Low-quota lab accounts may reject that reservation. Do not change account quotas
+   or permissions without the account owner's approval.
+6. Review the eventual change set before executing it: no Cognito create/update/delete,
+   no changes to Amplify, no replacement of existing resources. Do not manually create
+   duplicate tables if CloudFormation will manage them. Use synthetic data only.
+7. After a later approved deployment, test `/health`, public discovery, and protected
+   access tokens. Prove wrong issuer/client, expired tokens, ID tokens, disabled
+   accounts, student-to-admin escalation and cross-university edits are denied.
+   `/health` alone is not a database/authentication integration check.
 
-The app client has **no secret**. It supports the prepared public-client password adapter, verifies email, and requires a strong password. Confirmed self-registration invokes `scholarrise.provision.lambda_handler`, which creates only a student record. It ignores client-supplied role metadata. Admin-created Cognito accounts do not automatically run the post-confirmation sign-up trigger; provision their Users records explicitly.
+No deploy command has been run. SAM build/package/deploy is a separate future action,
+not part of the local validation commands above.
 
-For a later synthetic staff test, create/confirm the identity in Cognito under a restricted operator account, then review a dry run:
+## Costs and deletion behavior
 
-```powershell
-python backend/provision_staff.py --pool-id YOUR_POOL --username sample@example.test --users-table YOUR_USERS_TABLE --role university --university "Sample University"
-```
+DynamoDB uses on-demand (`PAY_PER_REQUEST`) billing. Reads/writes, index maintenance,
+storage and enabled point-in-time recovery can incur charges. There is no hard cost
+cap. Search currently loads approved records and filters in Python, so usage grows
+with catalog size. Lambda execution and API requests are usage-billed; CloudWatch
+logs/alarms and S3 storage/versions/requests can also cost money. Free-tier credits
+and limits depend on the account and are not a guarantee of a zero bill.
 
-The tool writes nothing without `--apply`. Adding `--apply` is a separate explicit operator action and uses the operator's AWS identity, never frontend keys. Use `--role admin` only for a designated project administrator. Cognito groups mirror the authoritative Users role. Restrict this script's operator permissions to the chosen pool/table; the deployed API cannot call it. Its changes are not atomic across Cognito and DynamoDB: the database role is authoritative, and rerun/reconcile groups if Cognito synchronization fails. For production, add an audited staff invitation/provisioning process and require MFA for privileged accounts; MFA challenge UI is outside this foundation.
+All five tables and the document bucket retain both their data on stack deletion
+(`DeletionPolicy: Retain`) and old resources on replacement (`UpdateReplacePolicy:
+Retain`). They remain chargeable and require deliberate cleanup later, including
+all S3 versions. Other resources use default deletion behavior: functions, IAM
+roles, permissions, alarms, bucket policy and log groups are removed on stack
+removal. Logs have 14-day retention while the stack exists but are not retained
+when the log groups are deleted. Review access policy for any retained bucket
+because its separate TLS-only bucket policy is not retained. Existing Cognito and
+Amplify resources are outside this stack and are not deleted with it.
 
-Admin activation/deactivation through the API affects application access, including issued tokens. It does not invoke Cognito global sign-out, delete accounts or change password state. Cognito token revocation/global sign-out does not make every already issued JWT disappear from a validating gateway immediately; expiry and server account state still matter.
-
-## Amplify Hosting via GitHub
-
-1. Review/commit the source to the project's GitHub repository yourself. No GitHub repository or connection has been created by this task.
-2. In Amplify Hosting, connect the intended repository/branch, use `amplify.yml`, and select a supported Node version compatible with Vite (the project currently uses Node 24 locally). The build is `npm ci`, then `npm run build`; artifacts are `dist`.
-3. Keep `VITE_DISCOVERY_SOURCE=demo` for the initial unchanged demo, or set `api` with `VITE_API_BASE_URL` to test API-backed discovery. `VITE_COGNITO_REGION` and `VITE_COGNITO_CLIENT_ID` are public identifiers for the next auth-screen integration; setting them alone does not replace the demo login.
-4. Any `VITE_*` value is public in the browser bundle. Never put AWS access keys, secret keys, operator tokens or app client secrets there.
-5. Update the backend `FrontendOrigin` and S3 CORS to the exact Amplify origin. Rebuild the frontend after changing Vite environment variables.
-6. Current navigation uses React state and hash anchors, not nested browser paths. Add an Amplify SPA rewrite to `/index.html` only when adding real client-side routes, preserving static asset paths.
-
-## Live verification before saying “AWS connected”
-
-- Confirm email sign-up creates a student-only Users record; attempting to supply a staff role fails/has no effect.
-- Obtain an actual Cognito **access token** through the public app client. An ID token, expired token, wrong issuer, wrong app client and unsigned token must fail private routes. API Gateway validates the signature; Lambda never trusts a decoded Authorization header alone.
-- Verify a student cannot read another student's activity or use university/admin routes. Verify a university cannot edit another university's scholarship or choose an arbitrary owner/institution.
-- Create a pending scholarship, confirm it is absent from public results, approve it as admin, then edit it as its university and confirm it disappears pending reapproval.
-- Test DynamoDB conditional version conflicts and persistence after logout/browser restart; explicitly migrate each frontend screen to APIs before describing it as cloud-backed.
-- Upload only synthetic PDFs through S3 POST policies; reject oversize/non-PDF uploads, complete an owner-authorized file, approve its listing, and test a version-specific short-lived attachment download. Confirm direct anonymous S3 access is denied.
-- Check CloudWatch request IDs/status without logging tokens, bodies, private notes or presigned URLs. Verify both the HTTP API 5xx alarm and Lambda execution-error alarm; add a project dashboard as needed. The API catches application exceptions, so they may not increment Lambda's execution error metric; the HTTP alarm covers handled 500 responses.
-- Run Playwright against the configured environment using dedicated synthetic accounts; do not point the offline fixed-token runner at AWS or use it for live authorization testing.
-
-## Official references used
-
-- [API Gateway JWT authorizers](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-jwt-authorizer.html)
-- [AWS SAM OAuth/JWT authorizer example](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-controlling-access-to-apis-oauth2-authorizer.html)
-- [Cognito post-confirmation triggers](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-lambda-post-confirmation.html)
-- [Cognito access tokens](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html)
-- [S3 POST policy constraints](https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-HTTPPOSTConstructPolicy.html)
-- [S3 versioned object uploads](https://docs.aws.amazon.com/AmazonS3/latest/userguide/AddingObjectstoVersioningEnabledBuckets.html)
-- [Vite deployment on Amplify](https://docs.amplify.aws/gen1/javascript/deploy-and-host/frameworks/deploy-vite-site/)
+Official references:
+- [API Gateway JWT checks and scopes](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-jwt-authorizer.html)
+- [DynamoDB pricing including PITR](https://aws.amazon.com/dynamodb/pricing/)
+- [CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/)
+- [CloudFormation Retain behavior](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-attribute-deletionpolicy.html)

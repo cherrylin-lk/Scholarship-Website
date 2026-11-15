@@ -55,6 +55,23 @@ class ApiTests(unittest.TestCase):
         result = self.app.handle({'rawPath': '/me', 'headers': {'Authorization': 'Bearer local-admin'}, 'requestContext': {'http': {'method': 'GET'}}})
         self.assertEqual(result['statusCode'], 401)
 
+    def test_existing_spa_access_token_uses_database_role_not_scopes_or_groups(self):
+        self.app.issuer = 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_ONSDhlqBo'
+        self.app.client_id = '4tdlqbsg2jrr3qvbj5atjh7qig'
+        claims = {'sub': 'student', 'iss': self.app.issuer, 'client_id': self.app.client_id,
+                  'token_use': 'access', 'exp': str(time.time() + 300), 'scope': 'openid email profile',
+                  'cognito:groups': ['admin', 'university'], 'custom:role': 'admin'}
+        self.assertEqual(self.call('GET', '/me', 'student', claims=claims)[1]['role'], 'student')
+        self.assertEqual(self.call('GET', '/admin/users', 'student', claims=claims)[0], 403)
+        self.assertEqual(self.call('GET', '/university/scholarships', 'student', claims=claims)[0], 403)
+        for overrides in [{'client_id': 'different-client'}, {'token_use': 'id'}, {'iss': 'different-issuer'}]:
+            self.assertEqual(self.call('GET', '/me', 'student', claims={**claims, **overrides})[0], 401)
+        # A genuine staff record grants its own role, even without a role/group claim.
+        for uid, endpoint in [('uni', '/university/scholarships'), ('admin', '/admin/users')]:
+            staff_claims = {**claims, 'sub': uid}
+            staff_claims.pop('cognito:groups'); staff_claims.pop('custom:role')
+            self.assertEqual(self.call('GET', endpoint, uid, claims=staff_claims)[0], 200)
+
     def test_university_ownership_moderation_and_optimistic_lock(self):
         body = self.write_body()
         self.assertEqual(self.call('POST', '/university/scholarships', 'student', body)[0], 403)

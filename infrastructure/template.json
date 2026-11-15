@@ -5,8 +5,42 @@
   "Parameters": {
     "FrontendOrigin": {
       "Type": "String",
-      "Description": "Exact HTTPS Amplify origin (no trailing slash), or loopback origin for a development stack.",
+      "Default": "https://main.d1s9suck9hx25r.amplifyapp.com",
+      "Description": "Exact HTTPS Amplify origin without trailing slash; loopback allowed for local development.",
       "AllowedPattern": "^https://[A-Za-z0-9.-]+$|^http://(localhost|127\\.0\\.0\\.1):5173$"
+    },
+    "ExistingUserPoolId": {
+      "Type": "String",
+      "Default": "ap-southeast-2_ONSDhlqBo",
+      "AllowedValues": [
+        "ap-southeast-2_ONSDhlqBo"
+      ],
+      "Description": "Existing ScholarRise pool in the deployment account and ap-southeast-2. Never created or updated by this stack."
+    },
+    "ExistingUserPoolClientId": {
+      "Type": "String",
+      "Default": "4tdlqbsg2jrr3qvbj5atjh7qig",
+      "AllowedValues": [
+        "4tdlqbsg2jrr3qvbj5atjh7qig"
+      ],
+      "Description": "Existing public SPA client. Existing managed-login settings remain unchanged."
+    }
+  },
+  "Rules": {
+    "SydneyOnly": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Equals": [
+              {
+                "Ref": "AWS::Region"
+              },
+              "ap-southeast-2"
+            ]
+          },
+          "AssertDescription": "Deploy this existing-pool backend only in ap-southeast-2."
+        }
+      ]
     }
   },
   "Globals": {
@@ -536,63 +570,6 @@
         }
       }
     },
-    "UserPool": {
-      "Type": "AWS::Cognito::UserPool",
-      "DeletionPolicy": "Retain",
-      "UpdateReplacePolicy": "Retain",
-      "Properties": {
-        "UsernameAttributes": [
-          "email"
-        ],
-        "AutoVerifiedAttributes": [
-          "email"
-        ],
-        "UsernameConfiguration": {
-          "CaseSensitive": false
-        },
-        "UserAttributeUpdateSettings": {
-          "AttributesRequireVerificationBeforeUpdate": [
-            "email"
-          ]
-        },
-        "Policies": {
-          "PasswordPolicy": {
-            "MinimumLength": 12,
-            "RequireLowercase": true,
-            "RequireUppercase": true,
-            "RequireNumbers": true,
-            "RequireSymbols": true
-          }
-        },
-        "AccountRecoverySetting": {
-          "RecoveryMechanisms": [
-            {
-              "Name": "verified_email",
-              "Priority": 1
-            }
-          ]
-        },
-        "Schema": [
-          {
-            "Name": "email",
-            "Required": true,
-            "Mutable": true
-          },
-          {
-            "Name": "name",
-            "Mutable": true
-          }
-        ],
-        "LambdaConfig": {
-          "PostConfirmation": {
-            "Fn::GetAtt": [
-              "ProvisionFunction",
-              "Arn"
-            ]
-          }
-        }
-      }
-    },
     "ProvisionPermission": {
       "Type": "AWS::Lambda::Permission",
       "Properties": {
@@ -602,72 +579,10 @@
         },
         "Principal": "cognito-idp.amazonaws.com",
         "SourceArn": {
-          "Fn::GetAtt": [
-            "UserPool",
-            "Arn"
-          ]
+          "Fn::Sub": "arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${ExistingUserPoolId}"
         },
         "SourceAccount": {
           "Ref": "AWS::AccountId"
-        }
-      }
-    },
-    "UserPoolClient": {
-      "Type": "AWS::Cognito::UserPoolClient",
-      "Properties": {
-        "UserPoolId": {
-          "Ref": "UserPool"
-        },
-        "GenerateSecret": false,
-        "PreventUserExistenceErrors": "ENABLED",
-        "ExplicitAuthFlows": [
-          "ALLOW_USER_PASSWORD_AUTH",
-          "ALLOW_REFRESH_TOKEN_AUTH"
-        ],
-        "ReadAttributes": [
-          "email",
-          "email_verified",
-          "name"
-        ],
-        "WriteAttributes": [
-          "email",
-          "name"
-        ],
-        "EnableTokenRevocation": true,
-        "AccessTokenValidity": 1,
-        "IdTokenValidity": 1,
-        "RefreshTokenValidity": 1,
-        "TokenValidityUnits": {
-          "AccessToken": "hours",
-          "IdToken": "hours",
-          "RefreshToken": "days"
-        }
-      }
-    },
-    "studentGroup": {
-      "Type": "AWS::Cognito::UserPoolGroup",
-      "Properties": {
-        "GroupName": "student",
-        "UserPoolId": {
-          "Ref": "UserPool"
-        }
-      }
-    },
-    "universityGroup": {
-      "Type": "AWS::Cognito::UserPoolGroup",
-      "Properties": {
-        "GroupName": "university",
-        "UserPoolId": {
-          "Ref": "UserPool"
-        }
-      }
-    },
-    "adminGroup": {
-      "Type": "AWS::Cognito::UserPoolGroup",
-      "Properties": {
-        "GroupName": "admin",
-        "UserPoolId": {
-          "Ref": "UserPool"
         }
       }
     },
@@ -715,16 +630,16 @@
               "IdentitySource": "$request.header.Authorization",
               "JwtConfiguration": {
                 "issuer": {
-                  "Fn::Sub": "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+                  "Fn::Sub": "https://cognito-idp.${AWS::Region}.amazonaws.com/${ExistingUserPoolId}"
                 },
                 "audience": [
                   {
-                    "Ref": "UserPoolClient"
+                    "Ref": "ExistingUserPoolClientId"
                   }
                 ]
               },
               "AuthorizationScopes": [
-                "aws.cognito.signin.user.admin"
+                "openid"
               ]
             }
           }
@@ -768,10 +683,10 @@
               "Ref": "DocumentBucket"
             },
             "COGNITO_ISSUER": {
-              "Fn::Sub": "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+              "Fn::Sub": "https://cognito-idp.${AWS::Region}.amazonaws.com/${ExistingUserPoolId}"
             },
             "COGNITO_CLIENT_ID": {
-              "Ref": "UserPoolClient"
+              "Ref": "ExistingUserPoolClientId"
             }
           }
         },
@@ -889,13 +804,22 @@
     },
     "UserPoolId": {
       "Value": {
-        "Ref": "UserPool"
+        "Ref": "ExistingUserPoolId"
       }
     },
     "UserPoolClientId": {
       "Value": {
-        "Ref": "UserPoolClient"
+        "Ref": "ExistingUserPoolClientId"
       }
+    },
+    "ProvisionFunctionArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "ProvisionFunction",
+          "Arn"
+        ]
+      },
+      "Description": "Optional post-confirmation trigger: attach to the existing pool only after approval."
     },
     "Region": {
       "Value": {

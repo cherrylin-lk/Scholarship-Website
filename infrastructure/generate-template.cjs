@@ -60,30 +60,21 @@ resources.ProvisionFunction = {
     Environment: { Variables: { USERS_TABLE: ref('UsersTable') } },
   },
 };
-resources.UserPool = { Type: 'AWS::Cognito::UserPool', DeletionPolicy: 'Retain', UpdateReplacePolicy: 'Retain', Properties: {
-  UsernameAttributes: ['email'], AutoVerifiedAttributes: ['email'], UsernameConfiguration: { CaseSensitive: false },
-  UserAttributeUpdateSettings: { AttributesRequireVerificationBeforeUpdate: ['email'] },
-  Policies: { PasswordPolicy: { MinimumLength: 12, RequireLowercase: true, RequireUppercase: true, RequireNumbers: true, RequireSymbols: true } },
-  AccountRecoverySetting: { RecoveryMechanisms: [{ Name: 'verified_email', Priority: 1 }] },
-  Schema: [{ Name: 'email', Required: true, Mutable: true }, { Name: 'name', Mutable: true }],
-  LambdaConfig: { PostConfirmation: arn('ProvisionFunction') },
+// Permission belongs to the new Lambda only. Attaching it to the existing pool
+// is a separate, later console action; this stack never updates Cognito.
+resources.ProvisionPermission = { Type: 'AWS::Lambda::Permission', Properties: {
+  Action: 'lambda:InvokeFunction', FunctionName: ref('ProvisionFunction'), Principal: 'cognito-idp.amazonaws.com',
+  SourceArn: sub('arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${ExistingUserPoolId}'),
+  SourceAccount: ref('AWS::AccountId'),
 } };
-resources.ProvisionPermission = { Type: 'AWS::Lambda::Permission', Properties: { Action: 'lambda:InvokeFunction', FunctionName: ref('ProvisionFunction'), Principal: 'cognito-idp.amazonaws.com', SourceArn: arn('UserPool'), SourceAccount: ref('AWS::AccountId') } };
-resources.UserPoolClient = { Type: 'AWS::Cognito::UserPoolClient', Properties: {
-  UserPoolId: ref('UserPool'), GenerateSecret: false, PreventUserExistenceErrors: 'ENABLED',
-  ExplicitAuthFlows: ['ALLOW_USER_PASSWORD_AUTH', 'ALLOW_REFRESH_TOKEN_AUTH'],
-  ReadAttributes: ['email', 'email_verified', 'name'], WriteAttributes: ['email', 'name'],
-  EnableTokenRevocation: true, AccessTokenValidity: 1, IdTokenValidity: 1, RefreshTokenValidity: 1,
-  TokenValidityUnits: { AccessToken: 'hours', IdToken: 'hours', RefreshToken: 'days' },
-} };
-for (const name of ['student', 'university', 'admin']) resources[`${name}Group`] = { Type: 'AWS::Cognito::UserPoolGroup', Properties: { GroupName: name, UserPoolId: ref('UserPool') } };
 resources.HttpApi = { Type: 'AWS::Serverless::HttpApi', Properties: {
   StageName: '$default', CorsConfiguration: { AllowOrigins: [ref('FrontendOrigin')], AllowHeaders: ['authorization', 'content-type'], AllowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], MaxAge: 300 },
   DefaultRouteSettings: { ThrottlingBurstLimit: 20, ThrottlingRateLimit: 10 },
   AccessLogSettings: { DestinationArn: arn('AccessLogs'), Format: '{"requestId":"$context.requestId","routeKey":"$context.routeKey","status":"$context.status","responseLength":"$context.responseLength"}' },
   Auth: { DefaultAuthorizer: 'CognitoJwt', Authorizers: { CognitoJwt: { IdentitySource: '$request.header.Authorization',
-    JwtConfiguration: { issuer: sub('https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'), audience: [ref('UserPoolClient')] },
-    AuthorizationScopes: ['aws.cognito.signin.user.admin'],
+    JwtConfiguration: { issuer: sub('https://cognito-idp.${AWS::Region}.amazonaws.com/${ExistingUserPoolId}'), audience: [ref('ExistingUserPoolClientId')] },
+    // Scope confirms the managed-login access-token flow; it grants no staff role.
+    AuthorizationScopes: ['openid'],
   } } },
 } };
 const apiEvent = (Path, Method, open = false) => ({ Type: 'HttpApi', Properties: { ApiId: ref('HttpApi'), Path, Method, PayloadFormatVersion: '2.0', ...(open ? { Auth: { Authorizer: 'NONE' } } : {}) } });
@@ -92,7 +83,7 @@ resources.ApiFunction = { Type: 'AWS::Serverless::Function', DependsOn: 'ApiLogs
   Environment: { Variables: {
     USERS_TABLE: ref('UsersTable'), SCHOLARSHIPS_TABLE: ref('ScholarshipsTable'), ACTIVITY_TABLE: ref('ActivityTable'),
     NOTIFICATIONS_TABLE: ref('NotificationsTable'), DOCUMENTS_TABLE: ref('DocumentsTable'), DOCUMENT_BUCKET: ref('DocumentBucket'),
-    COGNITO_ISSUER: sub('https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'), COGNITO_CLIENT_ID: ref('UserPoolClient'),
+    COGNITO_ISSUER: sub('https://cognito-idp.${AWS::Region}.amazonaws.com/${ExistingUserPoolId}'), COGNITO_CLIENT_ID: ref('ExistingUserPoolClientId'),
   } },
   Events: { Health: apiEvent('/health', 'GET', true), Search: apiEvent('/scholarships', 'GET', true), Detail: apiEvent('/scholarships/{id}', 'GET', true), Private: apiEvent('/{proxy+}', 'ANY') },
 } };
@@ -110,11 +101,22 @@ resources.ApiHttpErrorAlarm = { Type: 'AWS::CloudWatch::Alarm', Properties: {
 const output = {
   AWSTemplateFormatVersion: '2010-09-09', Transform: 'AWS::Serverless-2016-10-31',
   Description: 'ScholarRise backend foundation. Review before any deployment. No resources are created by generating this file.',
-  Parameters: { FrontendOrigin: { Type: 'String', Description: 'Exact HTTPS Amplify origin (no trailing slash), or loopback origin for a development stack.', AllowedPattern: '^https://[A-Za-z0-9.-]+$|^http://(localhost|127\\.0\\.0\\.1):5173$' } },
+  Parameters: {
+    FrontendOrigin: { Type: 'String', Default: 'https://main.d1s9suck9hx25r.amplifyapp.com',
+      Description: 'Exact HTTPS Amplify origin without trailing slash; loopback allowed for local development.',
+      AllowedPattern: '^https://[A-Za-z0-9.-]+$|^http://(localhost|127\\.0\\.0\\.1):5173$' },
+    ExistingUserPoolId: { Type: 'String', Default: 'ap-southeast-2_ONSDhlqBo', AllowedValues: ['ap-southeast-2_ONSDhlqBo'],
+      Description: 'Existing ScholarRise pool in the deployment account and ap-southeast-2. Never created or updated by this stack.' },
+    ExistingUserPoolClientId: { Type: 'String', Default: '4tdlqbsg2jrr3qvbj5atjh7qig', AllowedValues: ['4tdlqbsg2jrr3qvbj5atjh7qig'],
+      Description: 'Existing public SPA client. Existing managed-login settings remain unchanged.' },
+  },
+  Rules: { SydneyOnly: { Assertions: [{ Assert: { 'Fn::Equals': [ref('AWS::Region'), 'ap-southeast-2'] },
+    AssertDescription: 'Deploy this existing-pool backend only in ap-southeast-2.' }] } },
   Globals: { Function: { Runtime: 'python3.13', Architectures: ['x86_64'], MemorySize: 256, Timeout: 20 } },
   Resources: resources,
   Outputs: { ApiUrl: { Value: sub('https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com') },
-    UserPoolId: { Value: ref('UserPool') }, UserPoolClientId: { Value: ref('UserPoolClient') },
+    UserPoolId: { Value: ref('ExistingUserPoolId') }, UserPoolClientId: { Value: ref('ExistingUserPoolClientId') },
+    ProvisionFunctionArn: { Value: arn('ProvisionFunction'), Description: 'Optional post-confirmation trigger: attach to the existing pool only after approval.' },
     Region: { Value: ref('AWS::Region') }, DocumentBucketName: { Value: ref('DocumentBucket') },
     ...Object.fromEntries(['Users', 'Scholarships', 'Activity', 'Notifications', 'Documents'].map(n => [`${n}TableName`, { Value: ref(`${n}Table`) }])),
   },

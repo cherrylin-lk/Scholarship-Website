@@ -33,3 +33,19 @@ test('discovery follows pagination and keeps demo mode local', async () => {
   const local = createDiscovery();
   assert.equal((await local.catalog([{ id: 1, published: true, name: 'Demo' }, { id: 2, published: false }])).length, 1);
 });
+
+test('AWS discovery requests are public and failures never substitute demo records', async () => {
+  const records = [{ id: 'demo', name: 'Local demo', published: true, approvalStatus: 'approved' }];
+  let calls = 0;
+  const discovery = createDiscovery({ source: 'api', baseUrl: 'https://iwiirfnp4a7.execute-api.ap-southeast-2.amazonaws.com',
+    fetchImpl: async (url, options) => {
+      calls++;
+      assert.equal(options.headers.Authorization, undefined);
+      assert.equal(new URL(url).pathname, '/scholarships');
+      return { ok: false, status: 503, json: async () => ({ message: 'Temporarily unavailable' }) };
+    } });
+  await assert.rejects(discovery.catalog(records), /Temporarily unavailable/);
+  assert.equal(calls, 1);
+  const demo = createDiscovery({ source: 'demo', fetchImpl: () => { throw new Error('Demo must stay offline'); } });
+  assert.deepEqual((await demo.catalog(records)).map(record => record.id), ['demo']);
+});

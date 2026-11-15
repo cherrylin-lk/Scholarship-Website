@@ -40,7 +40,7 @@ class LambdaInfrastructureTests(unittest.TestCase):
         public = {(event['Properties']['Method'], event['Properties']['Path']) for event in events.values()
                   if event['Properties'].get('Auth', {}).get('Authorizer') == 'NONE'}
         self.assertEqual(public, {('GET', '/health'), ('GET', '/scholarships'), ('GET', '/scholarships/{id}')})
-        self.assertEqual(resources['UserPoolClient']['Properties']['GenerateSecret'], False)
+        self.assertFalse(any(row['Type'].startswith('AWS::Cognito::') for row in resources.values()))
         self.assertEqual(resources['DocumentBucket']['Properties']['PublicAccessBlockConfiguration']['BlockPublicPolicy'], True)
         statements = resources['ApiRole']['Properties']['Policies'][0]['PolicyDocument']['Statement']
         for statement in statements:
@@ -53,3 +53,48 @@ class LambdaInfrastructureTests(unittest.TestCase):
         self.assertEqual(alarm['Namespace'], 'AWS/ApiGateway')
         self.assertEqual(alarm['MetricName'], '5xx')
         self.assertNotIn('AlarmActions', alarm)
+
+    def test_existing_pool_is_referenced_without_cognito_mutation(self):
+        template = json.loads((Path(__file__).resolve().parents[2] / 'infrastructure/template.json').read_text())
+        resources, params = template['Resources'], template['Parameters']
+        self.assertEqual(params['ExistingUserPoolId']['Default'], 'ap-southeast-2_ONSDhlqBo')
+        self.assertEqual(params['ExistingUserPoolClientId']['Default'], '4tdlqbsg2jrr3qvbj5atjh7qig')
+        self.assertEqual(params['FrontendOrigin']['Default'], 'https://main.d1s9suck9hx25r.amplifyapp.com')
+        self.assertEqual(template['Rules']['SydneyOnly']['Assertions'][0]['Assert'],
+                         {'Fn::Equals': [{'Ref': 'AWS::Region'}, 'ap-southeast-2']})
+        jwt = resources['HttpApi']['Properties']['Auth']['Authorizers']['CognitoJwt']
+        issuer = {'Fn::Sub': 'https://cognito-idp.${AWS::Region}.amazonaws.com/${ExistingUserPoolId}'}
+        self.assertEqual(jwt['JwtConfiguration'], {'issuer': issuer, 'audience': [{'Ref': 'ExistingUserPoolClientId'}]})
+        self.assertEqual(jwt['AuthorizationScopes'], ['openid'])
+        env = resources['ApiFunction']['Properties']['Environment']['Variables']
+        self.assertEqual(env['COGNITO_ISSUER'], issuer)
+        self.assertEqual(env['COGNITO_CLIENT_ID'], {'Ref': 'ExistingUserPoolClientId'})
+        permission = resources['ProvisionPermission']['Properties']
+        self.assertEqual(permission['SourceAccount'], {'Ref': 'AWS::AccountId'})
+        self.assertEqual(permission['SourceArn'], {'Fn::Sub': 'arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${ExistingUserPoolId}'})
+        self.assertFalse(any(r['Type'].startswith('Custom::') or r['Type'] == 'AWS::CloudFormation::CustomResource' for r in resources.values()))
+        for name in ['ApiRole', 'ProvisionRole']:
+            for policy in resources[name]['Properties']['Policies']:
+                for statement in policy['PolicyDocument']['Statement']:
+                    self.assertNotEqual(statement['Resource'], '*')
+                    self.assertFalse(any(a.startswith(('iam:', 'cognito-idp:')) or a == '*' for a in statement['Action']))
+        cors = resources['HttpApi']['Properties']['CorsConfiguration']
+        self.assertEqual(cors['AllowOrigins'], [{'Ref': 'FrontendOrigin'}])
+        self.assertEqual(resources['DocumentBucket']['Properties']['CorsConfiguration']['CorsRules'][0]['AllowedOrigins'], [{'Ref': 'FrontendOrigin'}])
+
+    def test_five_tables_keep_application_keys_indexes_and_retention(self):
+        resources = json.loads((Path(__file__).resolve().parents[2] / 'infrastructure/template.json').read_text())['Resources']
+        expected = {'UsersTable': ['userId'], 'ScholarshipsTable': ['id'],
+                    'ActivityTable': ['userId', 'recordKey'], 'NotificationsTable': ['userId', 'id'], 'DocumentsTable': ['id']}
+        self.assertEqual({n for n, r in resources.items() if r['Type'] == 'AWS::DynamoDB::Table'}, set(expected))
+        for name, keys in expected.items():
+            resource, props = resources[name], resources[name]['Properties']
+            self.assertEqual(props['KeySchema'], [{'AttributeName': key, 'KeyType': 'HASH' if i == 0 else 'RANGE'} for i, key in enumerate(keys)])
+            self.assertEqual(resource['DeletionPolicy'], 'Retain')
+            self.assertEqual(resource['UpdateReplacePolicy'], 'Retain')
+            self.assertEqual(props['BillingMode'], 'PAY_PER_REQUEST')
+            self.assertTrue(props['PointInTimeRecoverySpecification']['PointInTimeRecoveryEnabled'])
+            self.assertNotIn('TableName', props)
+        indexes = resources['ScholarshipsTable']['Properties']['GlobalSecondaryIndexes']
+        self.assertEqual({i['IndexName']: [k['AttributeName'] for k in i['KeySchema']] for i in indexes},
+                         {'StatusIndex': ['approvalStatus', 'id'], 'OwnerIndex': ['ownerId', 'id']})

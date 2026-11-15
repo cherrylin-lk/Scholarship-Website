@@ -83,7 +83,7 @@ dashboards, configure a real API Gateway JWT-protected backend `/me` response wi
 `university`, or `admin`). Failed account checks deny access. Backend authorization
 and ownership checks remain mandatory for every protected operation.
 
-Scholarships and workspace records still use the existing mock/browser data layer.
+Stage 1 production discovery uses the deployed scholarship API; workspace records still use the existing browser data layer. See `STAGE-1-API-DISCOVERY.md`.
 Cognito makes identity available across browsers; it does not synchronize these
 records. Sessions and OIDC transaction state use sessionStorage. Tokens remain
 JavaScript-accessible, so preventing XSS remains important. Refresh tokens restore
@@ -92,9 +92,9 @@ Logging out revokes the refresh token when possible and clears the local session
 
 Before connecting the backend, configure its JWT issuer for this existing pool,
 its audience for this client, CORS for the exact frontend origins, and provision
-student records safely. The earlier SAM template creates a separate pool and uses
-an API scope different from these three OAuth scopes: **do not deploy it unchanged**.
-Adapt it to reference the existing pool and align authorization deliberately.
+student records safely. The SAM template now references the existing pool/client and requires `openid` for
+protected API routes. See `AWS-DEPLOYMENT.md` for provisioning, permissions and the
+pre-deployment review. The user has since confirmed backend deployment; private account integration and student provisioning remain Stage 2 work.
 
 For Amplify later, add the public environment variables in Hosting configuration
 and rebuild only after testing and approval. `.env.local` is ignored and will not

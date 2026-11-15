@@ -1,16 +1,20 @@
 # Multi-University Scholarship Discovery, Recommendation and Tracking System
 
+## Stage 1: AWS discovery
+
+See [the Stage 1 integration guide](docs/STAGE-1-API-DISCOVERY.md). Production configuration now selects the existing deployed scholarship API. The hosted site requires an approved rebuild before this change takes effect. Cognito is preserved; private workspaces remain browser-local. No deployment or push was performed.
+
 ## Cognito authentication
 
 For the existing AWS Amplify app, follow [the production preparation guide](docs/AMPLIFY-PRODUCTION.md). It includes the exact public environment variables, separate localhost settings, manual SPA rewrite, release checks, and remaining mock-data/security limits. No deployment is automatic from these local changes.
 
-See [Cognito setup and testing](docs/COGNITO-INTEGRATION.md). Login and registration now use Cognito managed login with PKCE. Scholarship and workspace data remain mock/browser-local. Live Cognito configuration and email delivery require manual testing. No deployment has been performed.
+See [Cognito setup and testing](docs/COGNITO-INTEGRATION.md). Login and registration now use Cognito managed login with PKCE. Production scholarship discovery is configured for the deployed AWS API; workspace data remains browser-local. The user confirmed working hosted Cognito authentication.
 
 ## Backend foundation (November 2026)
 
-Start with [the inspection and beginner backend guide](docs/BACKEND-FOUNDATION.md) and [future AWS deployment steps](docs/AWS-DEPLOYMENT.md). The new Python Lambda backend, DynamoDB adapters, Cognito preparation, private S3 document workflow, CloudWatch/SAM template, and optional API discovery service are prepared locally. **AWS is not connected or deployed.** Mock scholarship data remains available; private dashboard APIs still require configuration. The latest Word kick-off report was reviewed on 14 November 2026; [report alignment and remaining gaps](docs/REPORT-ALIGNMENT.md) are documented.
+Start with [the inspection and beginner backend guide](docs/BACKEND-FOUNDATION.md) and [future AWS deployment steps](docs/AWS-DEPLOYMENT.md). The new Python Lambda backend, DynamoDB adapters, Cognito preparation, private S3 document workflow, CloudWatch/SAM template, and optional API discovery service are prepared locally. The user confirmed the backend is deployed in ap-southeast-2 with two fictional scholarships. Stage 1 enables its public discovery configuration; private dashboard APIs still require integration. Demo discovery remains available for development. The latest Word kick-off report was reviewed on 14 November 2026; [report alignment and remaining gaps](docs/REPORT-ALIGNMENT.md) are documented.
 
-A responsive React + JavaScript website built with Vite. ScholarRise features a black-and-gold design, a destination and university filter sidebar, and the tagline “Your Future Starts Here.” All scholarships and universities are fictional; scholarship and workspace APIs are not connected. Cognito authentication requires the configuration described above.
+A responsive React + JavaScript website built with Vite. ScholarRise features a black-and-gold design, a destination and university filter sidebar, and the tagline “Your Future Starts Here.” The AWS discovery seed contains two fictional awards; private workspace APIs are not connected. Cognito authentication requires the configuration described above.
 
 ## Run locally
 

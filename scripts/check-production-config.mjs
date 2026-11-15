@@ -3,16 +3,14 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readCognitoConfig } from '../src/services/cognito.js';
 
-// Public identifiers only. This release hosts mock data with real Cognito identity.
+// Stage 1: public AWS scholarship discovery; private workspaces remain browser-local.
 export const productionEnvironment = JSON.parse(readFileSync(new URL('../deployment/amplify-environment.json', import.meta.url), 'utf8'));
 export function productionConfigErrors(env) {
   const errors = [];
   for (const [key, expected] of Object.entries(productionEnvironment)) {
     if (env[key] !== expected) errors.push(`Set ${key} to the documented production value.`);
   }
-  for (const key of ['VITE_API_BASE_URL', 'VITE_ACCOUNT_API_BASE_URL']) {
-    if (env[key]?.trim()) errors.push(`Leave ${key} unset until its production backend is configured and tested.`);
-  }
+  if (env.VITE_ACCOUNT_API_BASE_URL?.trim()) errors.push('Leave VITE_ACCOUNT_API_BASE_URL unset until students are provisioned and private APIs are tested.');
   for (const key of Object.keys(env)) {
     if (key.startsWith('VITE_') && /secret|password|token|access.?key|private.?key|credential/i.test(key)) {
       errors.push(`Remove sensitive frontend variable ${key}.`);
