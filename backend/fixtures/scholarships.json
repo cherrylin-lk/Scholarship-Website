@@ -1,0 +1,16 @@
+[
+  {
+    "id": "local-japan-award", "name": "Sample Japan Graduate Award", "university": "Local Example University", "country": "Japan",
+    "studyLevels": ["Master's", "PhD"], "fundingType": "Fully Funded", "amount": "Sample tuition support", "coverage": "Fictional offline testing fixture",
+    "description": "A synthetic scholarship used to test the API; this is not a real program.", "field": "All fields", "minGpa": 3.2,
+    "deadline": "2099-12-31", "published": true, "approvalStatus": "approved", "ownerId": "local-university", "initials": "LE",
+    "eligibility": "Sample criteria only", "documents": "Sample transcript", "applicationUrl": ""
+  },
+  {
+    "id": "local-thailand-award", "name": "Sample Thailand Undergraduate Award", "university": "Local Example University", "country": "Thailand",
+    "studyLevels": ["Bachelor's"], "fundingType": "Tuition Waiver", "amount": "Sample tuition waiver", "coverage": "Fictional offline testing fixture",
+    "description": "A synthetic scholarship used to test independent country and funding filters.", "field": "All fields", "minGpa": 3,
+    "deadline": "2099-12-31", "published": true, "approvalStatus": "approved", "ownerId": "local-university", "initials": "LE",
+    "eligibility": "Sample criteria only", "documents": "Sample transcript", "applicationUrl": ""
+  }
+]

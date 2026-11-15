@@ -1,0 +1,48 @@
+// Official-source summaries checked 12 November 2026. Dates belong to specific intakes.
+export const thaiScholarships = [
+  {
+    id: 'th-siit-efs-2026', name: 'SIIT Excellent Foreign Students Scholarship (EFS Type B)', university: 'Thammasat University (SIIT)', initials: 'TU',
+    field: 'Engineering & Technology', fundingType: 'Fully Funded', amount: 'Tuition and stipend', coverage: 'Benefits and excluded fees depend on the intake announcement.', deadline: '2026-09-30',
+    deadlineNote: 'January 2027 intake; applications closed 30 September 2026.',
+    description: 'A competitive SIIT graduate scholarship for international engineering and technology applicants. The January 2027 intake has completed its application round.',
+    eligibility: 'Non-Thai applicants must meet SIIT graduate admission and scholarship criteria. Confirm benefits and conditions in the intake announcement.',
+    documents: 'Statement of purpose and the supporting files specified in the official SIIT intake checklist.',
+    applicationUrl: 'https://graduateadmission.siit.tu.ac.th/m_newview/53',
+  },
+  {
+    id: 'th-chula-link-2026', name: 'Chula LINK Scholarship 2026', university: 'Chulalongkorn University', initials: 'CU',
+    fundingType: 'Fully Funded', amount: 'Tuition and living support', coverage: 'Tuition, monthly allowance and airfare support; conditions and limits apply.', deadline: '2026-10-31',
+    deadlineNote: 'The October 2026 call is closed. Check the university for the next round.',
+    description: 'The Leaders in International Networks and Knowledge scholarship supports international graduate students at Chulalongkorn University.',
+    eligibility: 'International passport holders admitted to a master’s or doctoral program; additional faculty and program conditions apply.',
+    documents: 'Confirm the required files with your program coordinator and the official scholarship portal.',
+    applicationUrl: 'https://grad.md.chula.ac.th/scholarship_university_detail.php?s=17', sourceUrl: 'https://www.inter.chula.ac.th/funding-opportunity/',
+  },
+  {
+    id: 'th-ait-rtg-2027', name: 'Royal Thai Government Scholarships at AIT', university: 'Asian Institute of Technology', initials: 'AIT',
+    fundingType: 'Fully Funded', amount: 'Tuition and living support', coverage: 'Tuition, accommodation and living bursary; doctoral awards also cover registration.', deadline: '2027-03-31', minGpa: 3.5,
+    deadlineNote: 'Official deadline for the August 2027 intake.',
+    description: 'Government-funded master’s and doctoral awards administered by AIT, including the King’s, Queen’s and Greater Mekong Subregion schemes.',
+    eligibility: 'Eligible Asian applicants; nationality and faculty rules vary by scheme. Relevant prior degree, GPA 3.5 or equivalent, and AIT English requirements apply. Check scheme-specific criteria.',
+    documents: 'Degree records, English results and statement of purpose; doctoral candidates also need two references and a research proposal.',
+    applicationUrl: 'https://ait.ac.th/financial/royal-thai-government-scholarships/',
+  },
+  {
+    id: 'th-cmu-presidential', name: 'CMU Presidential Scholarship', university: 'Chiang Mai University', initials: 'CMU',
+    fundingType: 'Partially Funded', amount: 'Tuition and allowances', coverage: 'Tuition support and living, settlement, insurance and other allowances, subject to award limits.', deadline: null,
+    deadlineNote: 'Current round deadline not confirmed. Check the official announcement.',
+    description: 'A Chiang Mai University graduate funding program. Published benefits include tuition support and a monthly living allowance; award limits apply.',
+    eligibility: 'Graduate applicants must meet the current scholarship and participating program requirements. Confirm eligible degrees and selection criteria with CMU.',
+    documents: 'Request the current scholarship checklist from the graduate school or your program.',
+    applicationUrl: 'https://pt.ams.cmu.ac.th/en/graduate-admission/scholarship-and-funding',
+  },
+  {
+    id: 'th-mahidol-postgrad-2026', name: 'Mahidol Postgraduate Scholarships 2026', university: 'Mahidol University', initials: 'MU',
+    fundingType: 'Partially Funded', amount: 'Tuition and expense support', coverage: 'Tuition and additional expense support; terms vary by quota.', deadline: '2026-07-08',
+    deadlineNote: 'Final listed program nomination deadline: 8 July 2026; central quota deadline: 3 July. Student deadlines are set by programs. Results published.',
+    description: 'Mahidol’s 2026 funding scheme for international graduate students. This round has concluded; contact the program for future opportunities.',
+    eligibility: 'International entrants to eligible graduate programs. Several faculties and joint programs are excluded; consult the official list.',
+    documents: 'Application form, passport, transcript, degree certificate, English results and indexed publications if applicable. Apply through your program coordinator.',
+    applicationUrl: 'https://graduate.mahidol.ac.th/inter/prospective-students/?p=scholarship&scholarship=mahidol-postgraduate-scholarships-international-2026',
+  },
+].map(s => ({ country: 'Thailand', degree: 'Postgraduate', studyLevels: ["Master's", 'PhD'], field: 'All fields', minGpa: null, color: 'gold', tag: 'Real program', realProgram: true, verifiedOn: '2026-11-12', published: true, approvalStatus: 'approved', ownerId: 'system', ...s }));
