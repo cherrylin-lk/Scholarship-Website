@@ -565,6 +565,9 @@
           "Variables": {
             "USERS_TABLE": {
               "Ref": "UsersTable"
+            },
+            "COGNITO_USER_POOL_ID": {
+              "Ref": "ExistingUserPoolId"
             }
           }
         }

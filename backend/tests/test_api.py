@@ -89,6 +89,34 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call('PUT', f'/university/scholarships/{created["id"]}', 'uni', {**body, 'version': 2})[0], 200)
         self.assertEqual(self.call('GET', f'/scholarships/{created["id"]}')[0], 404)
 
+    def test_staff_routes_reject_students_and_universities_cannot_administer(self):
+        operations = [('GET', '/university/scholarships', {}),
+                      ('POST', '/university/scholarships', self.write_body()),
+                      ('PUT', '/university/scholarships/award', {**self.write_body(), 'version': 1}),
+                      ('POST', '/university/scholarships/award/unpublish', {'version': 1}),
+                      ('GET', '/admin/users', {}), ('GET', '/admin/statistics', {}),
+                      ('GET', '/admin/scholarships', {}),
+                      ('POST', '/admin/scholarships/award/moderation', {'decision': 'approve', 'version': 1}),
+                      ('PATCH', '/admin/users/other', {'active': False, 'version': 1})]
+        for method, path, body in operations:
+            self.assertEqual(self.call(method, path, 'student', body)[0], 403)
+            self.assertEqual(self.call(method, path, body=body)[0], 401)
+            if path.startswith('/admin/'):
+                self.assertEqual(self.call(method, path, 'uni', body)[0], 403)
+        self.assertEqual(self.call('POST', '/university/scholarships/award/unpublish', 'rival', {'version': 1})[0], 403)
+        self.assertTrue(self.repo.get('scholarships', id='award')['published'])
+
+    def test_admin_activation_conflicts_and_role_escalation_are_rejected(self):
+        self.assertEqual(self.call('PATCH', '/admin/users/other', 'admin', {'active': False, 'version': 1, 'role': 'admin'})[0], 400)
+        self.assertEqual(self.call('PATCH', '/admin/users/other', 'admin', {'active': False, 'version': 1})[0], 200)
+        self.assertEqual(self.call('PATCH', '/admin/users/other', 'admin', {'active': True, 'version': 1})[0], 409)
+        self.assertFalse(self.repo.get('users', userId='other')['active'])
+        status, stats = self.call('GET', '/admin/statistics', 'admin')
+        self.assertEqual(status, 200)
+        self.assertEqual(stats, {'users': 5, 'scholarships': 1, 'published': 1, 'pending': 0})
+        self.assertEqual(self.call('POST', '/admin/scholarships/award/moderation', 'admin', {'decision': 'reject', 'version': 1, 'note': 'Review needed'})[0], 200)
+        self.assertEqual(self.call('GET', '/scholarships/award')[0], 404)
+
     def test_private_student_data_and_disabled_tokens(self):
         self.assertEqual(self.call('PUT', '/me/saved/award', 'student')[0], 200)
         self.assertEqual(self.call('GET', '/me/saved', 'other')[1]['items'], [])

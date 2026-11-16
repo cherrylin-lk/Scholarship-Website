@@ -16,7 +16,7 @@ function BrandLogo() {
 }
 
 function App() {
-  const { store, setStore, user, view, go, track, today, setAuth, cloudConfigured, cloudStudent, workspaceReady, toggleRemoteSaved, setCatalog, remote, retryWorkspace, authLoading } = usePortal();
+  const { store, setStore, user, view, go, track, today, setAuth, cloudConfigured, cloudStudent, workspaceReady, toggleRemoteSaved, setCatalog, remote, retryWorkspace, authLoading, catalogRevision } = usePortal();
   const apiDiscovery = discovery.source === 'api';
   const [remoteCatalog, setRemoteCatalog] = useState([]);
   const [catalogState, setCatalogState] = useState({ loading: apiDiscovery, error: '' });
@@ -31,7 +31,7 @@ function App() {
       if (!controller.signal.aborted) setCatalogState({ loading: false, error: error.message });
     });
     return () => controller.abort();
-  }, [apiDiscovery, reloadCatalog]);
+  }, [apiDiscovery, reloadCatalog, catalogRevision]);
   const scholarships = (apiDiscovery ? remoteCatalog : store.scholarships).filter(s => isPublic(s));
   const [query, setQuery] = useState('');
   const [degree, setDegree] = useState('');

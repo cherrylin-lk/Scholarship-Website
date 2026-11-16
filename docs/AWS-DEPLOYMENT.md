@@ -1,11 +1,16 @@
 # ScholarRise backend: existing Cognito deployment plan
 
-Updated 15 November 2026. The user has since confirmed deployment of
+Staff release status reported by the user: CloudFormation `UPDATE_COMPLETE`,
+automatic student provisioning verified, and university/admin `/me` verification
+successful. Publish the reviewed frontend separately; do not repeat the historical
+backend deployment, trigger attachment or account provisioning steps below.
+
+Updated 16 November 2026. The user has since confirmed deployment of
 `scholarrise-group9-backend` in ap-southeast-2, successful `/health` and
 `/scholarships` responses, and two approved fictional DynamoDB records. Amplify and
 Cognito already work. The preparation steps below document the original deployment
-review; do not redeploy the backend as part of the Stage 1 frontend release.
-Private account provisioning and end-to-end workspace integration remain unfinished.
+review; deploy local staff/provisioning changes only after separate approval.
+Stage 2 student profiles, saves and tracking are now reported live and verified by the user. Staff APIs and automatic signup provisioning are prepared locally; see [the current review guide](STAFF-AND-PROVISIONING.md).
 No AWS deployment commands were run by the agent during this release preparation.
 
 ## What changed
@@ -60,19 +65,17 @@ interrupt signup confirmation, so test with a synthetic new account and plan rol
 The trigger handles confirmed self-signup and creates only student records. The
 resource policy limits invocation to the existing pool and account.
 
-Existing confirmed users will not be processed retroactively. Before enabling `/me`
+Existing confirmed users will not be processed retroactively. For authenticated `/me` access
 in React, safely provision their Users records using their real Cognito `sub` and
 student role. Staff roles require a separately approved operator workflow. The
-existing `backend/provision_staff.py` also attempts Cognito group synchronization:
-this template no longer creates groups, so do **not** run it blindly with `--apply`.
-It can write a database role before failing group synchronization if groups are
-missing. Review/adapt that workflow separately; groups are unnecessary for current
-backend authorization. No staff-account or group changes were made here.
+revised `backend/provision_staff.py` is offline by default, makes no group changes,
+and requires expected role/version before updating an existing row. See
+[staff and provisioning preparation](STAFF-AND-PROVISIONING.md) for the current
+local implementation, permission review, trigger inventory and rollback steps.
+No staff-account, Cognito trigger or group changes have been made by this work.
 
-Frontend code and Amplify variables are unchanged. Keep mock mode working until
-backend endpoints are tested. Enabling real APIs later also requires updating the
-frontend production configuration guard, authorizing CORS and migrating each private
-screen to API storage. Switching on `/me` alone does not migrate profile/tracking data.
+Frontend staff changes remain local pending review. Existing Amplify variables and
+Cognito settings are unchanged; mock mode remains available.
 
 ## Local checks (no AWS calls)
 

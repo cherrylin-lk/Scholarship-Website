@@ -57,7 +57,7 @@ resources.ProvisionRole = { Type: 'AWS::IAM::Role', Properties: { AssumeRolePoli
 resources.ProvisionFunction = {
   Type: 'AWS::Serverless::Function', DependsOn: 'ProvisionLogs', Properties: {
     FunctionName: sub('${AWS::StackName}-provision'), CodeUri: '../backend/', Handler: 'scholarrise.provision.lambda_handler', Role: arn('ProvisionRole'),
-    Environment: { Variables: { USERS_TABLE: ref('UsersTable') } },
+    Environment: { Variables: { USERS_TABLE: ref('UsersTable'), COGNITO_USER_POOL_ID: ref('ExistingUserPoolId') } },
   },
 };
 // Permission belongs to the new Lambda only. Attaching it to the existing pool

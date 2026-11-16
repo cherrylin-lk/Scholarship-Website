@@ -55,9 +55,9 @@ class AdapterTests(unittest.TestCase):
     def test_post_confirmation_ignores_requested_admin_role_and_is_idempotent(self):
         from scholarrise import provision
         repo = MemoryRepository()
-        event = {'triggerSource': 'PostConfirmation_ConfirmSignUp', 'request': {
+        event = {'triggerSource': 'PostConfirmation_ConfirmSignUp', 'userPoolId': 'test-pool', 'request': {
             'userAttributes': {'sub': 'new-student', 'name': 'Sample', 'custom:role': 'admin'}, 'clientMetadata': {'role': 'admin'}}}
-        with patch.object(provision, 'DynamoRepository', return_value=repo):
+        with patch.dict('os.environ', {'COGNITO_USER_POOL_ID': 'test-pool'}), patch.object(provision, 'DynamoRepository', return_value=repo):
             provision.lambda_handler(event, None)
             provision.lambda_handler(event, None)
         user = repo.get('users', userId='new-student')

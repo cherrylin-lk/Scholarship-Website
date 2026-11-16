@@ -30,7 +30,7 @@ export function createApi({ baseUrl, getAccessToken = async () => null, fetchImp
   };
   const id = encodeURIComponent;
   return {
-    forSession: guard => createApi({ baseUrl, getAccessToken, fetchImpl, isSessionCurrent: guard }),
+    forSession: guard => createApi({ baseUrl, getAccessToken, fetchImpl, isSessionCurrent: () => isSessionCurrent() && guard() }),
     listScholarships: (query, signal) => request('/scholarships', { query, signal, authenticated: false }),
     getScholarship: scholarshipId => request(`/scholarships/${id(scholarshipId)}`, { authenticated: false }),
     me: () => request('/me'),

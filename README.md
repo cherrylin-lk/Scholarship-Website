@@ -97,3 +97,5 @@ Use university demo > My workspace > Add scholarship to create a multi-level lis
 
 ## Real Thailand programs
 Five official-source program summaries were added on 12 November 2026: SIIT EFS (Thammasat), Chula LINK, Royal Thai Government Scholarships (AIT), CMU Presidential, and Mahidol Postgraduate Scholarships. They are labeled separately from fictional demo awards. Refresh the app to add them to existing browser stores; the migration is idempotent and preserves saved edits, accounts, bookmarks, and application history. Closed rounds stay closed; CMU has no verified current deadline, and no synthetic deadline is assigned. AIT lists 31 March 2027 for its August 2027 intake. Official links and source dates appear in details. Funding categories summarize coverage; program-specific caps, exclusions, and eligibility remain authoritative on the linked university sites. Unknown GPA thresholds are not invented and those programs are excluded from GPA-based recommendation claims.
+
+Staff API and automatic student-provisioning preparation: see [the local implementation and deployment review guide](docs/STAFF-AND-PROVISIONING.md). No trigger is attached automatically.

@@ -5,6 +5,7 @@ import './portal.css';
 import { accountApi, authClient, authConfig, resolveAccount } from './services/auth.js';
 
 import { createStudentWorkspace } from './services/student.js';
+import CloudManagement from './CloudManagement.jsx';
 
 const CLOUD_STUDENTS = Boolean(accountApi) && import.meta.env.VITE_DISCOVERY_SOURCE === 'api';
 const EMPTY_ROWS = [];
@@ -42,6 +43,7 @@ export function PortalProvider({ children }) {
   } });
   const [remote, setRemote] = useState(() => controller.current?.getState());
   const [catalog, setCatalog] = useState([]);
+  const [catalogRevision, setCatalogRevision] = useState(0);
   useEffect(() => controller.current?.subscribe(setRemote), []);
   const cloudStudent = CLOUD_STUDENTS && account?.role === 'student';
   const current = cloudStudent && remote?.userId === account.id ? remote : null;
@@ -82,7 +84,7 @@ export function PortalProvider({ children }) {
     return () => { alive = false; generation++; unsubscribe(); };
   }, []);
   useEffect(() => {
-    if (!account || (CLOUD_STUDENTS && account.role === 'student')) return;
+    if (!account || CLOUD_STUDENTS) return;
     setStore(previous => {
       if (previous.users.some(u => u.id === account.id && u.cognito === true)) return previous;
       return { ...previous, users: [...previous.users, { id: account.id, name: account.name, email: account.email,
@@ -132,7 +134,10 @@ export function PortalProvider({ children }) {
     void controller.current.toggleSaved(id);
   }
   return <Context.Provider value={{ cloudStudent, cloudConfigured: CLOUD_STUDENTS, workspaceReady, remote: current,
-    retryWorkspace: () => controller.current?.reload(), saveStudentProfile, toggleRemoteSaved, setCatalog,
+    retryWorkspace: () => controller.current?.reload(), saveStudentProfile, toggleRemoteSaved, setCatalog, catalogRevision,
+    staffApi: identity => accountApi?.forSession(() => accountRef.current?.id === identity.id && accountRef.current?.role === identity.role),
+    staffChanged: () => setCatalogRevision(value => value + 1),
+    staffUnauthorized: identity => { if (accountRef.current?.id !== identity.id || accountRef.current?.role !== identity.role) return; controller.current?.reset(); accountRef.current = null; setAccount(null); setView('discover'); setAuthError('Staff access could not be verified. Please sign in again.'); void authClient.clearSession(); },
     saveRemoteApplication: (id, changes) => controller.current.saveApplication(id, changes),
     removeRemoteApplication: id => controller.current.removeApplication(id),
     dismissRemote: id => controller.current.dismiss(id), store, setStore, user, view, go, setAuth: beginAuth, logout, authLoading, authBusy, authError, setToast, alerts, track, today }}>
@@ -170,13 +175,13 @@ export function Workspace() {
   if (!user) return <main className="container workspace"><h1>Sign in to open your workspace.</h1></main>;
   const links = user.role === 'student' ? [['overview', 'Overview', LayoutDashboard], ['profile', 'Student profile', UserRound], ['recommendations', 'Recommendations', Sparkles], ['applications', 'Application tracking', Bookmark], ['notifications', 'Deadline reminders', Bell]] : user.role === 'university' ? [['university', 'University dashboard', Building2]] : [['admin', 'Administrator dashboard', ShieldCheck]];
   const activeView = links.some(([key]) => key === view) ? view : links[0][0];
-  return <main className="container workspace"><div className="workspace-heading"><div><div className="section-kicker">YOUR SCHOLARRISE WORKSPACE</div><h1>{user.role === 'student' ? `Welcome, ${user.name.split(' ')[0]}.` : user.role === 'university' ? 'University dashboard' : 'Administrator dashboard'}</h1><p>{user.role === 'student' ? 'Your goals, opportunities, and next steps in one place.' : user.role === 'university' ? user.university : 'Manage this browser’s demo users and scholarship catalog.'}</p></div><span className="sample-label">{cloudStudent ? 'Cloud student data' : 'Mock data'} · {user.role}</span></div><div className="workspace-layout"><aside className="workspace-menu">{links.map(([key, label, Icon]) => <button key={key} className={activeView === key ? 'current' : ''} onClick={() => go(key)}><Icon size={18}/>{label}</button>)}<button onClick={() => go('discover')}><ArrowRight size={18}/>Browse scholarships</button></aside><section className="workspace-content">
+  return <main className="container workspace"><div className="workspace-heading"><div><div className="section-kicker">YOUR SCHOLARRISE WORKSPACE</div><h1>{user.role === 'student' ? `Welcome, ${user.name.split(' ')[0]}.` : user.role === 'university' ? 'University dashboard' : 'Administrator dashboard'}</h1><p>{user.role === 'student' ? 'Your goals, opportunities, and next steps in one place.' : user.role === 'university' ? user.university : CLOUD_STUDENTS ? 'Manage authorized users and scholarship moderation.' : 'Manage this browser’s demo users and scholarship catalog.'}</p></div><span className="sample-label">{CLOUD_STUDENTS ? 'Cloud account data' : 'Mock data'} · {user.role}</span></div><div className="workspace-layout"><aside className="workspace-menu">{links.map(([key, label, Icon]) => <button key={key} className={activeView === key ? 'current' : ''} onClick={() => go(key)}><Icon size={18}/>{label}</button>)}<button onClick={() => go('discover')}><ArrowRight size={18}/>Browse scholarships</button></aside><section className="workspace-content">
     {cloudStudent && remote?.loading && <p role="status">Loading your workspace...</p>}
     {cloudStudent && remote?.error && <div className="panel" role="alert"><p>{remote.error}</p><button className="secondary-button" disabled={remote?.loading || remote?.busy} onClick={retryWorkspace}>Retry workspace</button></div>}
     {cloudStudent && remote?.busy && <p role="status">Saving changes...</p>}
 
     {(!cloudStudent || (!remote?.loading && remote?.account)) && <>{activeView === 'overview' && <Overview/>}{activeView === 'profile' && <Profile/>}{activeView === 'recommendations' && <Recommendations/>}{activeView === 'applications' && <Applications/>}{activeView === 'notifications' && <Notifications/>}{activeView === 'university' && user.role === 'university' && <Management/>}{activeView === 'admin' && user.role === 'admin' && <Management admin/>}</>}
-  </section></div><p className="demo-note">{cloudStudent ? 'Profiles, saved scholarships and tracking use AWS. Recommendations and in-app reminders are calculated in this browser; reminder dismissals last for this session. Application submission and background notifications are not connected.' : 'Signed in with Cognito. Workspace data is currently stored in this browser; application submission and background notifications are not connected.'}</p></main>;
+  </section></div><p className="demo-note">{cloudStudent ? 'Profiles, saved scholarships and tracking use AWS. Recommendations and in-app reminders are calculated in this browser; reminder dismissals last for this session. Application submission and background notifications are not connected.' : CLOUD_STUDENTS ? 'Staff listings, moderation and activation use AWS. Applicant overviews and document uploads are not connected in this screen.' : 'Signed in with Cognito. Workspace data is currently stored in this browser; application submission and background notifications are not connected.'}</p></main>;
 }
 
 function Overview() {
@@ -216,6 +221,13 @@ function Notifications({ compact = false }) {
 }
 
 function Management({ admin = false }) {
+  const { user, staffApi, staffUnauthorized, staffChanged, today } = usePortal();
+  return CLOUD_STUDENTS
+    ? <CloudManagement key={`${user.id}:${user.role}`} user={user} api={staffApi(user)} Dialog={Dialog} today={today} onUnauthorized={() => staffUnauthorized(user)} onChanged={staffChanged}/>
+    : <LocalManagement admin={admin}/>;
+}
+
+function LocalManagement({ admin = false }) {
   const { user, store, setStore, setToast, today } = usePortal();
   const [edit, setEdit] = useState(null);
   const [error, setError] = useState('');
