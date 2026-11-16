@@ -1,4 +1,4 @@
-# Multi-University Scholarship Discovery, Recommendation and Tracking System
+# Multi-University Scholarship Discovery and Tracking System
 
 ## Stage 2: student APIs
 
