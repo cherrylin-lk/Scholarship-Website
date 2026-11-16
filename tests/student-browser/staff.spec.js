@@ -118,6 +118,7 @@ test('administrator approves/rejects/unpublishes and manages activation without 
 test('staff error retry and version conflict never silently overwrite and expired access clears workspace', async ({ page }) => {
   const db = database(); db.fail = true; await login(page, db);
   await expect(page.getByRole('alert')).toContainText('Retry');
+  await expect(page.getByText('No scholarship listings yet.', { exact: true })).toHaveCount(0);
   db.fail = false; await page.getByRole('button', { name: 'Retry staff workspace' }).click();
   const row = page.getByRole('row').filter({ hasText: 'University Award' });
   await row.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -148,4 +149,57 @@ test('student session cannot open staff screens despite adversarial admin group 
   await expect(page.getByRole('button', { name: 'Administrator dashboard', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add scholarship', exact: true })).toHaveCount(0);
   expect(db.writes).toHaveLength(0);
+});
+
+function mixedCatalog(db) {
+  const base = db.rows[0];
+  db.rows = [
+    { ...base, id: 'legacy-one', name: 'Legacy Award One', published: true, approvalStatus: 'approved' },
+    { ...base, id: 'legacy-two', name: 'Legacy Award Two', published: true, approvalStatus: 'approved' },
+    { ...base, id: 'pending', name: 'ScholarRise Test Excellence Award', version: 7 },
+  ];
+  delete db.rows[0].version; delete db.rows[1].version;
+}
+
+test('admin sees two read-only legacy awards and can approve the versioned pending award', async ({ page }) => {
+  const db = database(); mixedCatalog(db); await login(page, db, 'admin');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByText('No scholarship listings yet.', { exact: true })).toHaveCount(0);
+  for (const name of ['Legacy Award One', 'Legacy Award Two']) {
+    const row = page.getByRole('row').filter({ hasText: name });
+    await expect(row).toContainText('Read-only: version unavailable');
+    for (const action of ['Edit', 'Approve and publish', 'Reject', 'Unpublish'])
+      await expect(row.getByRole('button', { name: action, exact: true })).toBeDisabled();
+  }
+  const pending = page.getByRole('row').filter({ hasText: 'ScholarRise Test Excellence Award' });
+  await expect(pending).toContainText('Pending approval');
+  await pending.getByRole('button', { name: 'Approve and publish', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm moderation' }).click();
+  await expect(pending).toContainText('Published');
+  expect(db.writes).toEqual([{ path: '/admin/scholarships/pending/moderation', body: { decision: 'approve', note: '', version: 7 } }]);
+  expect(Object.hasOwn(db.rows[0], 'version')).toBe(false);
+  expect(Object.hasOwn(db.rows[1], 'version')).toBe(false);
+});
+
+test('university legacy rows cannot edit or unpublish while a versioned owned row stays editable', async ({ page }) => {
+  const db = database(); mixedCatalog(db); await login(page, db);
+  for (const name of ['Legacy Award One', 'Legacy Award Two']) {
+    const row = page.getByRole('row').filter({ hasText: name });
+    await expect(row).toContainText('Read-only: version unavailable');
+    for (const action of ['Edit', 'Unpublish']) await expect(row.getByRole('button', { name: action, exact: true })).toBeDisabled();
+  }
+  await page.getByRole('row').filter({ hasText: 'ScholarRise Test Excellence Award' }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save scholarship', exact: true })).toBeEnabled();
+  expect(db.writes).toHaveLength(0);
+});
+
+test('admin API error shows Retry without false empty state and a successful empty retry shows it', async ({ page }) => {
+  const db = database(); db.fail = true; await login(page, db, 'admin');
+  await expect(page.getByRole('alert')).toContainText('Could not load or save staff data');
+  await expect(page.getByRole('button', { name: 'Retry staff workspace' })).toBeEnabled();
+  await expect(page.getByText('No scholarship listings yet.', { exact: true })).toHaveCount(0);
+  db.fail = false; db.rows = [];
+  await page.getByRole('button', { name: 'Retry staff workspace' }).click();
+  await expect(page.getByText('No scholarship listings yet.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });

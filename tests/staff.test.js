@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStaffWorkspace, scholarshipRequest } from '../src/services/staff.js';
+import { createStaffWorkspace, hasScholarshipVersion, scholarshipRequest } from '../src/services/staff.js';
 import { ApiError, createApi } from '../src/services/api.js';
 
 function setup(role = 'university') {
@@ -75,4 +75,50 @@ test('nested staff session transport keeps identity and unmount guards during to
   const pending = scoped.createScholarship({ name: 'Old session input' });
   sameUser = false; tokenReady('synthetic');
   await assert.rejects(pending, error => error.status === 401); assert.equal(requests, 0);
+});
+
+test('mixed legacy catalog stays visible and pending moderation uses the actual server version', async () => {
+  const f = setup('admin');
+  f.rows.splice(0, f.rows.length, { id: 'legacy-one' }, { id: 'legacy-two' },
+    { id: 'pending', version: 7, approvalStatus: 'pending' });
+  assert.equal(await f.workspace.reload(), true);
+  assert.equal(f.workspace.getState().scholarships.length, 3);
+  assert.equal(f.workspace.getState().error, '');
+  for (const row of f.workspace.getState().scholarships.slice(0, 2)) {
+    assert.equal(Object.hasOwn(row, 'version'), false);
+    for (const decision of ['approve', 'reject', 'unpublish']) assert.equal(await f.workspace.moderate(row, decision), false);
+    assert.equal(await f.workspace.moderate({ ...row, version: 1 }, 'approve'), false);
+  }
+  assert.deepEqual(f.writes, []);
+  assert.equal(await f.workspace.moderate(f.workspace.getState().scholarships[2], 'approve'), true);
+  assert.deepEqual(f.writes, [{ id: 'pending', decision: 'approve', note: '', version: 7 }]);
+});
+
+test('invalid versions remain read-only for university edits and unpublishing without blocking valid rows', async () => {
+  for (const version of [undefined, null, '1', 0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, true]) {
+    const f = setup(); f.rows[0].version = version;
+    assert.equal(await f.workspace.reload(), true);
+    const row = f.workspace.getState().scholarships[0];
+    assert.equal(hasScholarshipVersion(row), false);
+    assert.equal(await f.workspace.save(row.id, { version }), false);
+    assert.equal(await f.workspace.save(row.id, { version: 1 }), false);
+    assert.equal(await f.workspace.unpublish(row), false);
+    assert.equal(await f.workspace.unpublish({ ...row, version: 1 }), false);
+    assert.deepEqual(f.writes, []);
+    assert.equal(f.workspace.getState().error, '');
+    assert.equal(await f.workspace.save(null, { name: 'New pending listing' }), true);
+  }
+});
+
+test('legacy tolerance does not accept invalid IDs, foreign ownership or caller-invented records', async () => {
+  for (const invalid of [null, {}, { id: '' }, { id: ' ' }, { id: 123 }]) {
+    const f = setup('admin'); f.rows.splice(0, 1, invalid);
+    assert.equal(await f.workspace.reload(), false);
+    assert.deepEqual(f.workspace.getState().scholarships, []);
+  }
+  const f = setup(); delete f.rows[0].version; f.rows[0].ownerId = 'other';
+  assert.equal(await f.workspace.reload(), false);
+  const admin = setup('admin'); await admin.workspace.reload();
+  assert.equal(await admin.workspace.moderate({ id: 'not-returned-by-server', version: 1 }, 'approve'), false);
+  assert.deepEqual(admin.writes, []);
 });

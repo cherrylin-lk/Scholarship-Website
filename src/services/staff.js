@@ -1,5 +1,7 @@
 import { ApiError } from './api.js';
 
+export const hasScholarshipVersion = row => Number.isSafeInteger(row?.version) && row.version > 0;
+
 // Only editable scholarship fields; ownership and publication are always server assigned.
 export function scholarshipRequest(values, levels, version) {
   const body = Object.fromEntries(['name', 'country', 'amount', 'coverage', 'description', 'field', 'eligibility', 'documents', 'applicationUrl']
@@ -41,8 +43,8 @@ export function createStaffWorkspace({ api, identity, onUnauthorized = () => {},
       ]);
       if (!Array.isArray(listing.items) || !Array.isArray(users.items)) throw new Error('Invalid staff response.');
       for (const row of listing.items) {
-        if (!row.id || !Number.isSafeInteger(row.version) || row.version < 1 || (!admin && row.ownerId !== identity.id))
-          throw new Error('Invalid scholarship owner or version.');
+        if (!row || typeof row.id !== 'string' || !row.id.trim() || (!admin && row.ownerId !== identity.id))
+          throw new Error('Invalid scholarship ID or owner.');
       }
       if (!current(generation) || read !== sequence) return false;
       emit({ scholarships: listing.items, users: users.items, statistics, loading: false });
@@ -71,17 +73,22 @@ export function createStaffWorkspace({ api, identity, onUnauthorized = () => {},
       return false;
     } finally { if (current(generation)) emit({ busy: false }); }
   }
+  // Never fabricate versions or accept a caller-supplied version for a legacy row.
+  const canChange = (id, version) => {
+    const row = state.scholarships.find(item => item.id === id);
+    return hasScholarshipVersion(row) && row.version === version;
+  };
   return {
     getState: () => state,
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     dispose() { disposed = true; epoch++; sequence++; state = { scholarships: [], users: [], statistics: null, loading: false, busy: false, error: '' }; listeners.clear(); },
     reload,
-    save: (id, body) => mutate(client => {
+    save: (id, body) => id != null && !canChange(id, body?.version) ? Promise.resolve(false) : mutate(client => {
       if (identity.role !== 'university') throw new ApiError('Not allowed.', 403);
       return id ? client.updateScholarship(id, body) : client.createScholarship(body);
     }),
-    unpublish: row => mutate(client => client.unpublishScholarship(row.id, row.version)),
-    moderate: (row, decision, note = '') => mutate(client => {
+    unpublish: row => !canChange(row?.id, row?.version) ? Promise.resolve(false) : mutate(client => client.unpublishScholarship(row.id, row.version)),
+    moderate: (row, decision, note = '') => !canChange(row?.id, row?.version) ? Promise.resolve(false) : mutate(client => {
       if (identity.role !== 'admin') throw new ApiError('Not allowed.', 403);
       return client.moderate(row.id, { decision, note, version: row.version });
     }),

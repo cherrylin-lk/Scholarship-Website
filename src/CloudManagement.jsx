@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { dateAfter, dateLabel, daysLeft, fields, fundingTypes, fundingOf, isPublic, levelsOf, studyLevels } from './model';
-import { createStaffWorkspace, scholarshipRequest } from './services/staff.js';
+import { createStaffWorkspace, hasScholarshipVersion, scholarshipRequest } from './services/staff.js';
 
 export default function CloudManagement({ user, api, Dialog, today, onUnauthorized, onChanged }) {
   const controller = useRef(null);
@@ -37,11 +37,12 @@ export default function CloudManagement({ user, api, Dialog, today, onUnauthoriz
     {state.error && <div className="panel" role="alert"><p>{state.error}</p><button className="secondary-button" disabled={state.loading || state.busy} onClick={() => { setEdit(null); setModeration(null); setActivation(null); void controller.current.reload(); }}>Retry staff workspace</button></div>}
     <div className="panel"><div className="panel-heading"><h2>{admin ? 'Scholarship catalog' : 'Your scholarships'}</h2><button className="button" disabled={admin || !ready} title={admin ? 'Scholarship creation is available to university accounts through the backend.' : ''} onClick={() => { setError(''); setEdit({ field: 'All fields', minGpa: 3, deadline: dateAfter(30), studyLevels: ["Bachelor's"], fundingType: 'Fixed Amount' }); }}><Plus size={16}/>Add scholarship</button></div>
       <p>{admin ? 'Review pending listings, approve, reject or unpublish scholarships. Content creation and editing belong to university accounts.' : 'Create and manage scholarships belonging to your university. New and edited listings require administrator approval.'} Unpublishing keeps existing application history.</p>
-      {!state.loading && !managed.length && <p>No scholarship listings yet.</p>}
+      {!state.loading && !state.error && !managed.length && <p>No scholarship listings yet.</p>}
       <div className="table-wrap"><table><thead><tr><th>Scholarship</th><th>Deadline</th><th>Visibility</th><th>Actions</th></tr></thead><tbody>{managed.map(row => <tr key={row.id}><td><strong>{row.name}</strong><small>{row.university}</small>{row.moderationNote && <small>{row.moderationNote}</small>}</td><td>{dateLabel(row.deadline)}</td><td>{isPublic(row) ? 'Published' : row.approvalStatus === 'pending' ? 'Pending approval' : row.approvalStatus === 'rejected' ? 'Rejected' : 'Unpublished'}</td><td><div className="action-row">
-        <button className="text-link" disabled={admin || !ready} onClick={() => { setError(''); setEdit(row); }}>Edit</button>
-        {admin ? <>{['approve', 'reject', 'unpublish'].map(decision => <button className="text-link" key={decision} disabled={!ready || (decision === 'unpublish' && !row.published)} onClick={() => setModeration({ row, decision })}>{decision === 'approve' ? 'Approve and publish' : decision === 'reject' ? 'Reject' : 'Unpublish'}</button>)}</>
-          : <button className="text-link" disabled={!ready || !row.published} onClick={() => void controller.current.unpublish(row)}>{row.published ? 'Unpublish' : 'Awaiting approval'}</button>}
+        {!hasScholarshipVersion(row) && <small>Read-only: version unavailable</small>}
+        <button className="text-link" disabled={admin || !ready || !hasScholarshipVersion(row)} onClick={() => { setError(''); setEdit(row); }}>Edit</button>
+        {admin ? <>{['approve', 'reject', 'unpublish'].map(decision => <button className="text-link" key={decision} disabled={!ready || !hasScholarshipVersion(row) || (decision === 'unpublish' && !row.published)} onClick={() => setModeration({ row, decision })}>{decision === 'approve' ? 'Approve and publish' : decision === 'reject' ? 'Reject' : 'Unpublish'}</button>)}</>
+          : <button className="text-link" disabled={!ready || !row.published || !hasScholarshipVersion(row)} onClick={() => void controller.current.unpublish(row)}>{row.published ? 'Unpublish' : 'Awaiting approval'}</button>}
       </div></td></tr>)}</tbody></table></div></div>
     <div className="panel"><h2>{admin ? 'Application activity' : 'Applicant overview'}</h2><p>The backend does not provide a staff applicant overview endpoint. Student tracking and private notes are not loaded or shared here.</p></div>
     {admin && <div className="panel"><h2>User management</h2><p>Activation changes use the backend. Roles and administrator activation require a separately authorized operator; this screen cannot grant privileges.</p><div className="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>{state.users.map(row => <tr key={row.userId}><td><strong>{row.name}</strong><small>{row.university}</small></td><td>{row.role}</td><td>{row.active ? 'Active' : 'Disabled'}</td><td><button className="text-link" disabled={!ready || row.role === 'admin'} onClick={() => setActivation(row)}>{row.role === 'admin' ? 'Operator managed' : row.active ? 'Disable' : 'Enable'}</button></td></tr>)}</tbody></table></div></div>}
